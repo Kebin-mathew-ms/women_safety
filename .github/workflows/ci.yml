@@ -1,0 +1,93 @@
+name: Women Safe Travel CI Pipeline
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+
+jobs:
+  # ─── BACKEND BUILD & VERIFY ─────────────────────────────────────────────────
+  backend-ci:
+    name: Backend CI checks
+    runs-on: ubuntu-latest
+
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: root
+          MYSQL_DATABASE: women
+        ports:
+          - 3306:3306
+        options: --health-cmd="mysqladmin ping" --health-interval=10s --health-timeout=5s --health-retries=3
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js Environment
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+          cache-dependency-path: 'backend/package-lock.json'
+
+      - name: Install dependencies
+        run: |
+          cd backend
+          npm ci
+
+      - name: Generate Prisma Client
+        env:
+          DATABASE_URL: mysql://root:root@127.0.0.1:3306/women
+        run: |
+          cd backend
+          npx prisma generate
+
+      - name: Push Database Schema (Validate Migrations)
+        env:
+          DATABASE_URL: mysql://root:root@127.0.0.1:3306/women
+        run: |
+          cd backend
+          npx prisma db push
+
+      - name: Type safety audit (TSC)
+        run: |
+          cd backend
+          npx tsc --noEmit
+
+      - name: Run Test Suite
+        env:
+          DATABASE_URL: mysql://root:root@127.0.0.1:3306/women
+          JWT_SECRET: test_jwt_secret_value
+          ADMIN_JWT_SECRET: test_admin_jwt_secret_value
+        run: |
+          cd backend
+          npx ts-node src/utils/testSuiteAdmin.ts
+
+  # ─── FRONTEND ADMIN PORTAL BUILD ────────────────────────────────────────────
+  admin-ci:
+    name: Admin Portal CI checks
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js Environment
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+          cache-dependency-path: 'admin/package-lock.json'
+
+      - name: Install dependencies
+        run: |
+          cd admin
+          npm ci
+
+      - name: Build Web Application
+        run: |
+          cd admin
+          npm run build

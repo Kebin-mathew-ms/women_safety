@@ -1,0 +1,731 @@
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+model User {
+  userId          String             @id @default(uuid())
+  fullName        String
+  email           String             @unique
+  phone           String             @unique
+  password        String
+  profileImage    String?
+  dateOfBirth     DateTime?
+  gender          String?
+  bloodGroup      String?
+  address         String?
+  city            String?
+  state           String?
+  country         String?
+  latitude        Float?
+  longitude       Float?
+  emailVerified   Boolean            @default(false)
+  phoneVerified   Boolean            @default(false)
+  isActive        Boolean            @default(true)
+  isBlocked       Boolean            @default(false)
+  lastLogin       DateTime?
+  createdAt       DateTime           @default(now())
+  updatedAt       DateTime           @updatedAt
+  deletedAt       DateTime?
+  
+  emergencyContacts    EmergencyContact[]
+  refreshTokens        RefreshToken[]
+  trips                Trip[]
+  savedPlaces          SavedPlace[]
+  sosAlerts            SOSAlert[]
+  liveTrackingSessions LiveTrackingSession[]
+  wearableDevices      WearableDevice[]
+  reviews              PlaceReview[]
+  crimeReports         CrimeReport[]
+  posts                CommunityPost[]
+  comments             PostComment[]
+  likes                PostLike[]
+  saves                SavedPost[]
+  participants         ChatParticipant[]
+  messages             Message[]
+  reportedPosts        ReportedPost[]
+  notifications           Notification[]
+  notificationPreferences NotificationPreferences?
+  voiceCommands           VoiceCommand[]
+  aiSafetyAnalyses        AISafetyAnalyses[]
+  aiConversations         AIConversations[]
+  @@index([city])
+  @@index([isActive])
+  @@index([isBlocked])
+}
+
+model EmergencyContact {
+  contactId    String   @id @default(uuid())
+  userId       String
+  name         String
+  phone        String
+  relationship String
+  priority     Int
+  isPrimary    Boolean  @default(false)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  user         User     @relation(fields: [userId], references: [userId], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model RefreshToken {
+  id         String   @id @default(uuid())
+  userId     String
+  token      String   @unique @db.VarChar(512)
+  expiryDate DateTime
+  deviceName String?
+  deviceId   String?
+  ipAddress  String?
+  createdAt  DateTime @default(now())
+
+  user       User     @relation(fields: [userId], references: [userId], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model Trip {
+  tripId             String         @id @default(uuid())
+  userId             String
+  tripName           String
+  sourceAddress      String
+  destinationAddress String
+  sourceLatitude     Float
+  sourceLongitude    Float
+  destinationLatitude  Float
+  destinationLongitude Float
+  travelMode         String         @default("driving")
+  estimatedDistance  Float          // in kilometers
+  estimatedDuration  Float          // in minutes
+  status             String         @default("created") // created, active, paused, completed, cancelled
+  riskScore          Float          @default(0.0)
+  startedAt          DateTime?
+  completedAt        DateTime?
+  createdAt          DateTime       @default(now())
+  updatedAt          DateTime       @updatedAt
+
+  user               User           @relation(fields: [userId], references: [userId], onDelete: Cascade)
+  locations          TripLocation[]
+  aiSafetyAnalyses        AISafetyAnalyses[]
+  aiRouteRecommendations AIRouteRecommendations[]
+
+  @@index([userId])
+  @@index([status])
+}
+
+model TripLocation {
+  locationId String   @id @default(uuid())
+  tripId     String
+  latitude   Float
+  longitude  Float
+  speed      Float    @default(0.0)
+  heading    Float    @default(0.0)
+  accuracy   Float    @default(0.0)
+  recordedAt DateTime @default(now())
+
+  trip       Trip     @relation(fields: [tripId], references: [tripId], onDelete: Cascade)
+
+  @@index([tripId])
+}
+
+model SavedPlace {
+  placeId   String   @id @default(uuid())
+  userId    String
+  placeName String
+  latitude  Float
+  longitude Float
+  address   String
+  category  String   // home, office, custom
+  createdAt DateTime @default(now())
+
+  user      User     @relation(fields: [userId], references: [userId], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model SOSAlert {
+  sosId             String         @id @default(uuid())
+  userId            String
+  tripId            String?
+  latitude          Float
+  longitude         Float
+  address           String
+  status            String         @default("active") // active, cancelled, resolved
+  emergencyType     String         @default("general") // general, medical, harassment, accident, etc.
+  triggeredBy       String         @default("user") // user, voice, wearable, quick, manual, trip
+  voiceActivated    Boolean        @default(false)
+  wearableActivated Boolean        @default(false)
+  cancelledBy       String?
+  cancelledReason   String?
+  resolvedBy        String?
+  createdAt         DateTime       @default(now())
+  updatedAt         DateTime       @updatedAt
+  resolvedAt        DateTime?
+
+  user              User           @relation(fields: [userId], references: [userId], onDelete: Cascade)
+  recipients        SOSRecipient[]
+
+  @@index([userId])
+  @@index([status])
+}
+
+model SOSRecipient {
+  recipientId        String    @id @default(uuid())
+  sosId              String
+  contactId          String
+  notificationStatus String    @default("pending") // pending, delivered, failed
+  deliveredAt        DateTime?
+  acknowledged       Boolean   @default(false)
+  acknowledgedAt     DateTime?
+
+  sosAlert           SOSAlert  @relation(fields: [sosId], references: [sosId], onDelete: Cascade)
+
+  @@index([sosId])
+}
+
+model LiveTrackingSession {
+  sessionId String               @id @default(uuid())
+  userId    String
+  tripId    String?
+  startedAt DateTime             @default(now())
+  endedAt   DateTime?
+  status    String               @default("active") // active, ended
+
+  user      User                 @relation(fields: [userId], references: [userId], onDelete: Cascade)
+  viewers   LiveTrackingViewer[]
+
+  @@index([userId])
+}
+
+model LiveTrackingViewer {
+  viewerId      String              @id @default(uuid())
+  sessionId     String
+  contactUserId String
+  connected     Boolean             @default(false)
+  lastSeen      DateTime            @default(now())
+
+  session       LiveTrackingSession @relation(fields: [sessionId], references: [sessionId], onDelete: Cascade)
+
+  @@index([sessionId])
+}
+
+model WearableDevice {
+  deviceId     String   @id @default(uuid())
+  userId       String
+  deviceName   String
+  deviceType   String   // WearOS, custom, watch
+  macAddress   String   @unique
+  batteryLevel Float    @default(100.0)
+  connected    Boolean  @default(false)
+  createdAt    DateTime @default(now())
+
+  user         User     @relation(fields: [userId], references: [userId], onDelete: Cascade)
+  logs         WearableLog[]
+
+  @@index([userId])
+}
+
+model SafePlace {
+  placeId            String         @id @default(uuid())
+  name               String
+  category           String         // women_hostel, hotel, police_station, pg, safe_zone, etc.
+  latitude           Float
+  longitude          Float
+  address            String
+  city               String
+  state              String
+  country            String
+  phone              String?
+  website            String?
+  description        String?        @db.Text
+  womenOnly          Boolean        @default(false)
+  cctv               Boolean        @default(false)
+  securityGuard      Boolean        @default(false)
+  reception24x7      Boolean        @default(false)
+  parking            Boolean        @default(false)
+  lightingScore      Float          @default(0.0)
+  accessibilityScore Float          @default(0.0)
+  verified           Boolean        @default(false)
+  averageRating      Float          @default(0.0)
+  createdAt          DateTime       @default(now())
+  updatedAt          DateTime       @updatedAt
+
+  images             PlaceImage[]
+  reviews            PlaceReview[]
+  aiReviewSummary    AIReviewSummaries?
+  @@index([city])
+  @@index([category])
+  @@index([verified])
+}
+
+model PlaceImage {
+  imageId    String    @id @default(uuid())
+  placeId    String
+  imageUrl   String
+  uploadedBy String
+  createdAt  DateTime  @default(now())
+
+  safePlace  SafePlace @relation(fields: [placeId], references: [placeId], onDelete: Cascade)
+
+  @@index([placeId])
+}
+
+model PlaceReview {
+  reviewId    String    @id @default(uuid())
+  placeId     String
+  userId      String
+  rating      Int
+  lighting    Int
+  crowd       Int
+  cleanliness Int
+  security    Int
+  comment     String?   @db.Text
+  createdAt   DateTime  @default(now())
+
+  safePlace   SafePlace @relation(fields: [placeId], references: [placeId], onDelete: Cascade)
+  user        User      @relation(fields: [userId], references: [userId], onDelete: Cascade)
+
+  @@index([placeId])
+  @@index([userId])
+}
+
+model PoliceStation {
+  policeId    String   @id @default(uuid())
+  name        String
+  latitude    Float
+  longitude   Float
+  address     String
+  phone       String?
+  email       String?
+  open24Hours Boolean  @default(true)
+}
+
+model Hospital {
+  hospitalId         String   @id @default(uuid())
+  name               String
+  latitude           Float
+  longitude          Float
+  address            String
+  phone              String?
+  emergencyAvailable Boolean  @default(true)
+}
+
+model CrimeReport {
+  reportId    String   @id @default(uuid())
+  userId      String
+  latitude    Float
+  longitude   Float
+  address     String
+  category    String   // unsafe_area, poor_lighting, broken_street_lights, harassment, etc.
+  severity    String   @default("medium") // low, medium, high
+  description String?  @db.Text
+  anonymous   Boolean  @default(false)
+  status      String   @default("pending") // pending, approved, resolved
+  createdAt   DateTime @default(now())
+
+  user        User     @relation(fields: [userId], references: [userId], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([status])
+  @@index([severity])
+}
+
+model CommunityPost {
+  postId        String          @id @default(uuid())
+  userId        String
+  title         String
+  description   String          @db.Text
+  latitude      Float?
+  longitude     Float?
+  address       String?
+  category      String          // safety_alert, travel_experience, safe_hotel, unsafe_area, emergency_help, travel_partner, question, general
+  visibility    String          @default("public")
+  anonymous     Boolean         @default(false)
+  imagesCount   Int             @default(0)
+  likes         Int             @default(0)
+  comments      Int             @default(0)
+  views         Int             @default(0)
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime        @updatedAt
+  deletedAt     DateTime?
+
+  user          User            @relation(fields: [userId], references: [userId], onDelete: Cascade)
+  images        PostImage[]
+  postComments  PostComment[]
+  postLikes     PostLike[]
+  savedPosts    SavedPost[]
+  reportedPosts ReportedPost[]
+
+  @@index([userId])
+  @@index([category])
+  @@index([deletedAt])
+}
+
+model PostImage {
+  imageId   String        @id @default(uuid())
+  postId    String
+  imageUrl  String
+  createdAt DateTime      @default(now())
+
+  post      CommunityPost @relation(fields: [postId], references: [postId], onDelete: Cascade)
+
+  @@index([postId])
+}
+
+model PostComment {
+  commentId String        @id @default(uuid())
+  postId    String
+  userId    String
+  comment   String        @db.Text
+  createdAt DateTime      @default(now())
+  updatedAt DateTime      @updatedAt
+
+  post      CommunityPost @relation(fields: [postId], references: [postId], onDelete: Cascade)
+  user      User          @relation(fields: [userId], references: [userId], onDelete: Cascade)
+
+  @@index([postId])
+  @@index([userId])
+}
+
+model PostLike {
+  likeId    String        @id @default(uuid())
+  postId    String
+  userId    String
+  createdAt DateTime      @default(now())
+
+  post      CommunityPost @relation(fields: [postId], references: [postId], onDelete: Cascade)
+  user      User          @relation(fields: [userId], references: [userId], onDelete: Cascade)
+
+  @@unique([postId, userId])
+  @@index([postId])
+  @@index([userId])
+}
+
+model SavedPost {
+  savedId   String        @id @default(uuid())
+  userId    String
+  postId    String
+  createdAt DateTime      @default(now())
+
+  post      CommunityPost @relation(fields: [postId], references: [postId], onDelete: Cascade)
+  user      User          @relation(fields: [userId], references: [userId], onDelete: Cascade)
+
+  @@unique([userId, postId])
+  @@index([userId])
+  @@index([postId])
+}
+
+model ChatRoom {
+  roomId    String            @id @default(uuid())
+  roomName  String?
+  roomType  String            @default("private") // private, group, safety, emergency
+  createdBy String?
+  createdAt DateTime          @default(now())
+
+  participants ChatParticipant[]
+  messages     Message[]
+}
+
+model ChatParticipant {
+  participantId String   @id @default(uuid())
+  roomId        String
+  userId        String
+  joinedAt      DateTime @default(now())
+
+  room          ChatRoom @relation(fields: [roomId], references: [roomId], onDelete: Cascade)
+  user          User     @relation(fields: [userId], references: [userId], onDelete: Cascade)
+
+  @@unique([roomId, userId])
+  @@index([roomId])
+  @@index([userId])
+}
+
+model Message {
+  messageId   String        @id @default(uuid())
+  roomId      String
+  senderId    String
+  messageType String        @default("text") // text, image, location, emergency
+  message     String?       @db.Text
+  image       String?
+  latitude    Float?
+  longitude   Float?
+  readStatus  String        @default("sent") // sent, delivered, read
+  createdAt   DateTime      @default(now())
+
+  room        ChatRoom      @relation(fields: [roomId], references: [roomId], onDelete: Cascade)
+  sender      User          @relation(fields: [senderId], references: [userId], onDelete: Cascade)
+  reads       MessageRead[]
+
+  @@index([roomId])
+  @@index([senderId])
+}
+
+model MessageRead {
+  readId    String   @id @default(uuid())
+  messageId String
+  userId    String
+  readAt    DateTime @default(now())
+
+  message   Message  @relation(fields: [messageId], references: [messageId], onDelete: Cascade)
+
+  @@unique([messageId, userId])
+  @@index([messageId])
+}
+
+model ReportedPost {
+  reportId    String        @id @default(uuid())
+  postId      String
+  reportedBy  String
+  reason      String
+  description String?       @db.Text
+  status      String        @default("pending") // pending, reviewed, deleted
+  createdAt   DateTime      @default(now())
+
+  post        CommunityPost @relation(fields: [postId], references: [postId], onDelete: Cascade)
+  reporter    User          @relation(fields: [reportedBy], references: [userId], onDelete: Cascade)
+
+  @@index([postId])
+  @@index([reportedBy])
+}
+
+model Notification {
+  notificationId String    @id @default(uuid())
+  userId         String
+  title          String
+  message        String    @db.Text
+  type           String    // trip_started, trip_completed, sos_triggered, emergency_contact, weather_warning, etc.
+  priority       String    @default("medium") // critical, high, medium, low
+  isRead         Boolean   @default(false)
+  createdAt      DateTime  @default(now())
+  readAt         DateTime?
+
+  user           User      @relation(fields: [userId], references: [userId], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model NotificationPreferences {
+  preferenceId       String   @id @default(uuid())
+  userId             String   @unique
+  tripAlerts         Boolean  @default(true)
+  sosAlerts          Boolean  @default(true)
+  weatherAlerts      Boolean  @default(true)
+  trafficAlerts      Boolean  @default(true)
+  communityAlerts    Boolean  @default(true)
+  chatNotifications  Boolean  @default(true)
+  nearbySafetyAlerts Boolean  @default(true)
+  nightTravelWarnings Boolean @default(true)
+  emergencyUpdates   Boolean  @default(true)
+  pushEnabled        Boolean  @default(true)
+  soundEnabled       Boolean  @default(true)
+  vibrationEnabled   Boolean  @default(true)
+
+  user               User     @relation(fields: [userId], references: [userId], onDelete: Cascade)
+}
+
+model VoiceCommand {
+  commandId String   @id @default(uuid())
+  userId    String
+  command   String
+  action    String
+  enabled   Boolean  @default(true)
+  createdAt DateTime @default(now())
+
+  user      User     @relation(fields: [userId], references: [userId], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model WearableLog {
+  logId       String         @id @default(uuid())
+  deviceId    String
+  action      String         // connect, disconnect, double_tap, fall_detected, battery_low
+  batteryLevel Float
+  triggeredAt DateTime       @default(now())
+
+  device      WearableDevice @relation(fields: [deviceId], references: [deviceId], onDelete: Cascade)
+
+  @@index([deviceId])
+}
+
+model AISafetyAnalyses {
+  analysisId     String   @id @default(uuid())
+  userId         String
+  tripId         String
+  riskScore      Float
+  riskLevel      String   // Low, Medium, High, Critical
+  recommendation String   @db.Text
+  confidence     Float
+  factorsJson    String   @db.Text
+  createdAt      DateTime @default(now())
+
+  user           User     @relation(fields: [userId], references: [userId], onDelete: Cascade)
+  trip           Trip     @relation(fields: [tripId], references: [tripId], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([tripId])
+}
+
+model AIRouteRecommendations {
+  recommendationId    String   @id @default(uuid())
+  tripId              String
+  recommendedRoute    String   @db.Text
+  alternativeRoute    String   @db.Text
+  reason              String   @db.Text
+  estimatedSafetyScore Float
+  estimatedTime       Float
+  estimatedDistance   Float
+  createdAt           DateTime @default(now())
+
+  trip                Trip     @relation(fields: [tripId], references: [tripId], onDelete: Cascade)
+
+  @@index([tripId])
+}
+
+model AIConversations {
+  conversationId String   @id @default(uuid())
+  userId         String
+  sessionId      String
+  question       String   @db.Text
+  answer         String   @db.Text
+  model          String
+  responseTime   Int
+  createdAt      DateTime @default(now())
+
+  user           User     @relation(fields: [userId], references: [userId], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model AIReviewSummaries {
+  summaryId          String    @id @default(uuid())
+  placeId            String    @unique
+  summary            String    @db.Text
+  positiveHighlights String    @db.Text
+  negativeHighlights String    @db.Text
+  overallSafety      String    @db.Text
+  createdAt          DateTime  @default(now())
+
+  safePlace          SafePlace @relation(fields: [placeId], references: [placeId], onDelete: Cascade)
+}
+
+model AIPromptTemplate {
+  templateId   String    @id @default(uuid())
+  templateName String    @unique
+  templateText String    @db.Text
+  category     String    @default("general")
+  isActive     Boolean   @default(true)
+  usageCount   Int       @default(0)
+  lastUsed     DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+}
+
+// ─────────────────────────────────────────────
+// PROMPT 9: Administration & System Management
+// ─────────────────────────────────────────────
+
+model AdminUsers {
+  adminId      String       @id @default(uuid())
+  name         String
+  email        String       @unique
+  passwordHash String
+  role         String       @default("moderator") // superadmin, admin, moderator, support, analytics, readonly
+  status       String       @default("active")    // active, suspended, deleted
+  lastLogin    DateTime?
+  refreshToken String?      @db.Text
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+
+  auditLogs    AuditLogs[]
+  announcements AdminAnnouncements[]
+}
+
+model Roles {
+  roleId       String            @id @default(uuid())
+  roleName     String            @unique
+  description  String?
+  createdAt    DateTime          @default(now())
+  updatedAt    DateTime          @updatedAt
+
+  rolePermissions RolePermissions[]
+}
+
+model Permissions {
+  permissionId   String            @id @default(uuid())
+  permissionName String            @unique
+  description    String?
+  module         String            @default("general")
+  createdAt      DateTime          @default(now())
+
+  rolePermissions RolePermissions[]
+}
+
+model RolePermissions {
+  rolePermissionId String      @id @default(uuid())
+  roleId           String
+  permissionId     String
+  grantedAt        DateTime    @default(now())
+
+  role             Roles       @relation(fields: [roleId], references: [roleId], onDelete: Cascade)
+  permission       Permissions @relation(fields: [permissionId], references: [permissionId], onDelete: Cascade)
+
+  @@unique([roleId, permissionId])
+  @@index([roleId])
+  @@index([permissionId])
+}
+
+model AuditLogs {
+  auditId       String     @id @default(uuid())
+  adminId       String?
+  userId        String?
+  module        String
+  action        String     // CREATE, UPDATE, DELETE, LOGIN, LOGOUT, APPROVE, REJECT, BAN, MUTE
+  entityType    String?
+  entityId      String?
+  ipAddress     String?
+  userAgent     String?    @db.Text
+  oldValuesJson String?    @db.LongText
+  newValuesJson String?    @db.LongText
+  createdAt     DateTime   @default(now())
+
+  admin         AdminUsers? @relation(fields: [adminId], references: [adminId], onDelete: SetNull)
+
+  @@index([adminId])
+  @@index([module])
+  @@index([action])
+  @@index([createdAt])
+}
+
+model SystemSettings {
+  settingId    String   @id @default(uuid())
+  settingKey   String   @unique
+  settingValue String   @db.Text
+  category     String   @default("general") // general, safety, ai, notification, map, socket, weather
+  description  String?
+  updatedAt    DateTime @updatedAt
+}
+
+model AdminAnnouncements {
+  announcementId String    @id @default(uuid())
+  title          String
+  message        String    @db.Text
+  priority       String    @default("normal")  // critical, high, normal, low
+  targetAudience String    @default("all")     // all, users, admins
+  startDate      DateTime
+  endDate        DateTime
+  active         Boolean   @default(true)
+  createdBy      String
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  creator        AdminUsers @relation(fields: [createdBy], references: [adminId], onDelete: Cascade)
+
+  @@index([active])
+  @@index([startDate, endDate])
+}
