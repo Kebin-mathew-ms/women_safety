@@ -1,11 +1,20 @@
 import axios from 'axios';
+import { Platform } from 'react-native';
 import SecureStorageService from './secureStore';
 
-// Physical device on same Wi-Fi network → use PC's local IP
-const DEFAULT_API_URL = 'http://192.168.1.15:5000/api';
+// Dynamic base URL configuration:
+// - Web browser: uses the browser host dynamically (localhost or current IP)
+// - Native App: uses the current PC local Wi-Fi IP address
+const getBaseUrl = () => {
+  if (Platform.OS === 'web') {
+    const hostname = typeof window !== 'undefined' ? window.location.hostname : 'localhost';
+    return `http://${hostname}:5000/api`;
+  }
+  return 'http://192.168.1.5:5000/api';
+};
 
 export const apiClient = axios.create({
-  baseURL: DEFAULT_API_URL,
+  baseURL: getBaseUrl(),
   timeout: 10000,
   headers: {
     'Content-Type': 'application/json',
