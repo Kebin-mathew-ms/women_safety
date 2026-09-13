@@ -252,7 +252,12 @@ export const UserAIAssistant: React.FC = () => {
                         wordBreak: 'break-word',
                       }}
                     >
-                      {msg.content}
+                      {msg.content
+                        .replace(/\*\*\*([^*]+)\*\*\*/g, '$1')
+                        .replace(/\*\*\*/g, '')
+                        .replace(/^#{1,6}\s*/gm, '')
+                        .replace(/^\s*\*\s*\*{2,3}/gm, '• ')
+                        .replace(/^\s*\*\s+/gm, '• ')}
                     </Typography>
                   </Paper>
                 </Box>

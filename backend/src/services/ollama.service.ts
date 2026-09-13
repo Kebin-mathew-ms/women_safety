@@ -31,7 +31,7 @@ export const queryOllama = async (prompt: string, modelName: string = 'phi3'): P
       const candidate = response.data?.candidates?.[0];
       const text = candidate?.content?.parts?.[0]?.text;
       if (text) {
-        return text.trim();
+        return sanitizeOutput(text.trim());
       }
       throw new Error('Empty response payload from Gemini API.');
     } catch (error: any) {
@@ -116,13 +116,23 @@ export const queryOllama = async (prompt: string, modelName: string = 'phi3'): P
     );
 
     if (response.data && response.data.response) {
-      return response.data.response.trim();
+      return sanitizeOutput(response.data.response.trim());
     }
     throw new Error('Empty inference body from local LLM.');
   } catch (error: any) {
     logger.warn(`Local Ollama service offline or model ${modelName} missing: ${error.message}`);
     throw error;
   }
+};
+
+export const sanitizeOutput = (text: string): string => {
+  if (!text) return '';
+  return text
+    .replace(/\*\*\*([^*]+)\*\*\*/g, '$1')
+    .replace(/\*\*\*/g, '')
+    .replace(/^\s*\*\s*\*{2,3}/gm, '• ')
+    .replace(/^\s*\*\s+/gm, '• ')
+    .trim();
 };
 
 export default queryOllama;
