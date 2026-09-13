@@ -59,7 +59,24 @@ export const aiChat = async (req: Request, res: Response, next: NextFunction): P
     const { question, userLocation, sessionId = 'default-session' } = req.body;
 
     const lower = question.toLowerCase();
-    const isRouteQuery = lower.includes('route') || lower.includes('way') || lower.includes('travel') || lower.includes('reach') || lower.includes('going') || lower.includes('direction') || lower.includes('safest');
+
+    // Explicit check for general safety, packing, items, advice questions
+    const isExplicitPackingOrGeneralQuery = lower.includes('take') || lower.includes('pack') || lower.includes('bring') || lower.includes('carry') || lower.includes('item') || lower.includes('things') || lower.includes('checklist') || lower.includes('what should i');
+
+    // Route engine triggers only for specific route, direction, or travel destination queries
+    const isRouteQuery = !isExplicitPackingOrGeneralQuery && (
+      lower.includes('route') ||
+      lower.includes('direction') ||
+      lower.includes('navigation') ||
+      lower.includes('safest way') ||
+      lower.includes('best way to reach') ||
+      lower.includes('how to reach') ||
+      lower.includes('going to') ||
+      lower.includes('drive to') ||
+      (lower.includes('safest') && (lower.includes('path') || lower.includes('road') || lower.includes('corridor') || lower.includes('highway'))) ||
+      /\bfrom\s+[a-z\s]+\s+to\s+[a-z\s]+\b/i.test(lower) ||
+      (/\b(to|reach)\b/i.test(lower) && ['kottayam', 'kochi', 'trivandrum', 'thiruvananthapuram', 'calicut', 'kozhikode', 'thrissur', 'alappuzha', 'palakkad', 'kannur', 'bangalore', 'mumbai', 'delhi', 'chennai', 'munnar', 'wayanad', 'idukki', 'malappuram'].some((c) => lower.includes(c)))
+    );
 
     let answer = '';
     let modelUsed = '3-layer-safety-engine';
@@ -72,7 +89,7 @@ export const aiChat = async (req: Request, res: Response, next: NextFunction): P
 
       try {
         answer = await queryOllama(fullPrompt);
-        modelUsed = 'phi3';
+        modelUsed = 'gemini-3.6-flash';
       } catch {
         modelUsed = 'rule-engine';
         answer = generateSmartFallbackResponse(question);
@@ -178,7 +195,24 @@ const generate3LayerRouteResponse = async (question: string, userLocation?: stri
 const generateSmartFallbackResponse = (question: string): string => {
   const lower = question.toLowerCase();
 
-  // 1. Destination / Route Specific Query
+  // 1. Packing / Items / Things to carry while traveling
+  if (lower.includes('take') || lower.includes('pack') || lower.includes('carry') || lower.includes('bring') || lower.includes('item') || lower.includes('things') || lower.includes('checklist')) {
+    return `🎒 **Essential Safety Checklist & Items for Women Travelers**:\n\n` +
+      `1. **Personal Safety & Defense Tools**:\n` +
+      `   • **Pepper Spray / CS Safety Spray**: Keep in an easily accessible outer pocket of your bag/jacket.\n` +
+      `   • **Personal Security Alarm / Whistle**: High-decibel audible siren to call for help instantly.\n` +
+      `   • **Portable Door Stopper / Lock**: Heavy-duty wedge lock for securing hotel/hostel room doors.\n\n` +
+      `2. **Power & Communication**:\n` +
+      `   • **High-Capacity Power Bank** (10,000mAh+): Keep your mobile device powered continuously.\n` +
+      `   • **Physical Emergency Contacts Card**: Backup printout of trusted contacts and helpline numbers (112, 1091, 1515).\n\n` +
+      `3. **Documents & Funds**:\n` +
+      `   • **Government ID Copies**: Physical ID cards stored in a waterproof pouch.\n` +
+      `   • **Emergency Cash**: Stashed separately from your primary wallet.\n\n` +
+      `4. **App Features to Enable**:\n` +
+      `   • Enable **Live Trip Tracking** in SafeTravel so trusted contacts receive live location updates.`;
+  }
+
+  // 2. Destination / Route Specific Query
   const routeMatch = lower.match(/(?:to|towards|for)\s+([a-zA-Z\s]+)/i);
   const mentionsRoute = lower.includes('route') || lower.includes('way') || lower.includes('travel') || lower.includes('drive') || lower.includes('reach') || lower.includes('going') || lower.includes('direction');
   if (mentionsRoute || routeMatch) {
