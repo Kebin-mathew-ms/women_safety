@@ -4,6 +4,7 @@ import { socketManager } from '../socket';
 import ResponseHelper from '../utils/response';
 import { NotFoundError, BadRequestError, UnauthorizedError } from '../utils/errors';
 import logger from '../utils/logger';
+import SmsService from '../services/sms.service';
 
 export const createSOS = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
@@ -87,6 +88,18 @@ export const createSOS = async (req: Request, res: Response, next: NextFunction)
       triggeredBy: newSos.triggeredBy,
       createdAt: newSos.createdAt.toISOString(),
     });
+
+    // Dispatch real Cellular SMS alerts to emergency contacts asynchronously
+    SmsService.dispatchSOSAlerts({
+      userName: user?.fullName || 'SafeTravel User',
+      userPhone: user?.phone || 'Unknown Phone',
+      locationAddress: newSos.address,
+      latitude,
+      longitude,
+      sosId: newSos.sosId,
+      emergencyType: newSos.emergencyType,
+      contacts: contacts.map((c) => ({ name: c.name, phone: c.phone })),
+    }).catch((err) => logger.error(`Failed to dispatch emergency SMS: ${err.message}`));
 
     // Emit event to specific active trip if linked
     if (tripId) {

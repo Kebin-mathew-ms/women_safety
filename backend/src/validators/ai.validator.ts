@@ -4,6 +4,7 @@ export const aiChatSchema = z.object({
   body: z.object({
     question: z.string({ required_error: 'Question is required' }).trim().min(1),
     sessionId: z.string().optional(),
+    context: z.string().optional(),
   }),
 });
 

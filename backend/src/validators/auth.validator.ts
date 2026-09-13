@@ -86,7 +86,7 @@ export const emergencyContactSchema = z.object({
     name: z.string({ required_error: 'Contact name is required' }).trim().min(1, 'Name is required'),
     phone: z.string({ required_error: 'Phone number is required' }).trim().regex(phoneRegex, 'Invalid phone number format'),
     relationship: z.string({ required_error: 'Relationship details required' }).trim().min(1, 'Relationship is required'),
-    priority: z.coerce.number({ required_error: 'Priority is required' }).int().min(1).max(5),
-    isPrimary: z.boolean().default(false),
+    priority: z.coerce.number().int().min(1).max(5).optional(),
+    isPrimary: z.boolean().optional().default(false),
   }),
 });

@@ -59,17 +59,30 @@ export const RegisterScreen: React.FC<{ navigation: any }> = ({ navigation }) =>
     } catch (error: any) {
       setLoading(false);
       const serverMessage = error.response?.data?.message || 'Registration failed. Please try again.';
-      const validationErrors = error.response?.data?.errors;
+      let validationErrors = error.response?.data?.errors;
       
-      if (validationErrors) {
+      // Handle potential legacy nested errors structure gracefully
+      if (validationErrors && validationErrors.errors) {
+        validationErrors = validationErrors.errors;
+      }
+
+      if (validationErrors && typeof validationErrors === 'object') {
         const mapped: Record<string, string> = {};
         Object.keys(validationErrors).forEach((key) => {
-          mapped[key] = validationErrors[key].join(', ');
+          const val = validationErrors[key];
+          if (Array.isArray(val)) {
+            mapped[key] = val.join(', ');
+          } else if (typeof val === 'string') {
+            mapped[key] = val;
+          }
         });
-        setErrors(mapped);
-      } else {
-        Alert.alert('Registration Error', serverMessage);
+        if (Object.keys(mapped).length > 0) {
+          setErrors(mapped);
+          return;
+        }
       }
+      
+      Alert.alert('Registration Error', serverMessage);
     }
   };
 

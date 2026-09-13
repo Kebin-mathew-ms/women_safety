@@ -9,7 +9,7 @@ import logger from '../utils/logger';
 export const createTrip = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
     const userId = (req as any).user.userId;
-    const {
+    let {
       tripName,
       sourceAddress,
       destinationAddress,
@@ -20,32 +20,67 @@ export const createTrip = async (req: Request, res: Response, next: NextFunction
       travelMode,
     } = req.body;
 
-    // Call OSM Service to calculate estimated distance, duration, and route polyline path
+    // 1. Geocode source location if missing or zero
+    let srcLat = parseFloat(sourceLatitude) || 0;
+    let srcLon = parseFloat(sourceLongitude) || 0;
+    if (srcLat === 0 && srcLon === 0) {
+      const srcQuery = (sourceAddress && !sourceAddress.includes('Current')) ? sourceAddress : 'Trivandrum';
+      const srcResults = await OsmService.searchAddress(srcQuery);
+      if (srcResults.length > 0) {
+        srcLat = srcResults[0].latitude;
+        srcLon = srcResults[0].longitude;
+        sourceAddress = srcResults[0].address;
+      } else {
+        throw new NotFoundError(`Starting location "${srcQuery}" could not be found. Please enter a valid place name.`);
+      }
+    }
+
+    // 2. Geocode destination location if missing or zero
+    let destLat = parseFloat(destinationLatitude) || 0;
+    let destLon = parseFloat(destinationLongitude) || 0;
+    if (destLat === 0 && destLon === 0) {
+      if (!destinationAddress) {
+        throw new BadRequestError('Destination address is required to create a trip.');
+      }
+      const destResults = await OsmService.searchAddress(destinationAddress);
+      if (destResults.length > 0) {
+        destLat = destResults[0].latitude;
+        destLon = destResults[0].longitude;
+        destinationAddress = destResults[0].address;
+      } else {
+        throw new NotFoundError(`Destination location "${destinationAddress}" could not be found. Please check spelling or enter a valid place name.`);
+      }
+    }
+
+    // 3. Calculate OSRM route between real coordinates
     const route = await OsmService.calculateRoute(
-      sourceLatitude,
-      sourceLongitude,
-      destinationLatitude,
-      destinationLongitude
+      srcLat,
+      srcLon,
+      destLat,
+      destLon
     );
+
+    const formattedDistance = Math.round(route.distance * 10) / 10;
+    const formattedDuration = Math.round(route.duration);
 
     const newTrip = await prisma.trip.create({
       data: {
         userId,
-        tripName: tripName || 'My Safe Trip',
-        sourceAddress,
+        tripName: tripName || `Trip to ${destinationAddress.split(',')[0]}`,
+        sourceAddress: sourceAddress || 'Starting Location',
         destinationAddress,
-        sourceLatitude,
-        sourceLongitude,
-        destinationLatitude,
-        destinationLongitude,
+        sourceLatitude: srcLat,
+        sourceLongitude: srcLon,
+        destinationLatitude: destLat,
+        destinationLongitude: destLon,
         travelMode: travelMode || 'driving',
-        estimatedDistance: route.distance, // in km
-        estimatedDuration: route.duration, // in minutes
+        estimatedDistance: formattedDistance, // in km
+        estimatedDuration: formattedDuration, // in minutes
         status: 'created',
       },
     });
 
-    logger.info(`Trip created: ${newTrip.tripId} for user ${userId}`);
+    logger.info(`Trip created: ${newTrip.tripId} for user ${userId} (${formattedDistance} km)`);
     ResponseHelper.success(res, 'Trip created successfully', {
       trip: newTrip,
       routeCoordinates: route.coordinates,

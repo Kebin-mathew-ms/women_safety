@@ -27,6 +27,7 @@ import notificationsRoutes from './routes/notifications.routes';
 import voiceRoutes from './routes/voice.routes';
 import aiRoutes from './routes/ai.routes';
 import admin2Routes from './routes/admin2.routes';
+import routeSafetyRoutes from './routes/routeSafety.routes';
 import sanitizeInput from './middleware/sanitize.middleware';
 import { NotFoundError } from './utils/errors';
 
@@ -63,6 +64,7 @@ app.use('/api', healthRoutes);
 app.use('/api/auth', authRoutes);
 app.use('/api/profile', profileRoutes);
 app.use('/api/emergency-contacts', contactRoutes);
+app.use('/api/contacts', contactRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/trips', tripRoutes);
 app.use('/api/places', placesRoutes);
@@ -80,6 +82,7 @@ app.use('/api/notifications', notificationsRoutes);
 app.use('/api/voice', voiceRoutes);
 app.use('/api/ai', aiRoutes);
 app.use('/api/admin2', admin2Routes);
+app.use('/api/routes', routeSafetyRoutes);
 
 // Catch 404 and forward to error handler
 app.use((req: Request, res: Response, next: NextFunction) => {

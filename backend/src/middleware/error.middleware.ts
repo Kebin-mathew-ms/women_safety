@@ -13,7 +13,7 @@ export const errorHandler = (
 ): void => {
   let statusCode = 500;
   let message = 'Internal Server Error';
-  let errors: any = null;
+  let errors: any = undefined;
 
   if (err instanceof AppError) {
     statusCode = err.statusCode;
@@ -31,12 +31,9 @@ export const errorHandler = (
     logger.warn(`[Operational Error] ${message} - Status: ${statusCode}`);
   }
 
-  const errorData = {
-    ...(errors && { errors }),
-    ...(config.NODE_ENV === 'development' && { stack: err.stack }),
-  };
+  const stack = config.NODE_ENV === 'development' ? err.stack : undefined;
 
-  ResponseHelper.error(res, message, statusCode, Object.keys(errorData).length > 0 ? errorData : undefined);
+  ResponseHelper.error(res, message, statusCode, errors, stack);
 };
 
 export default errorHandler;

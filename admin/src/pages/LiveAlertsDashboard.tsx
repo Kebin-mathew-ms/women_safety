@@ -70,30 +70,42 @@ export const LiveAlertsDashboard: React.FC = () => {
 
   const getMapIframeSrcDoc = (alertItem: any) => {
     if (!alertItem) return '';
-    const lat = alertItem.latitude;
-    const lon = alertItem.longitude;
+    const rawLat = parseFloat(alertItem.latitude);
+    const rawLon = parseFloat(alertItem.longitude);
+    const validCoords = !isNaN(rawLat) && !isNaN(rawLon) && (rawLat !== 0 || rawLon !== 0);
+    const lat = validCoords ? rawLat : 9.9312;
+    const lon = validCoords ? rawLon : 76.2673;
+    const travelerName = alertItem.user?.fullName || alertItem.fullName || 'Traveler';
+    const emergencyType = alertItem.emergencyType ? alertItem.emergencyType.toUpperCase() : 'GENERAL';
+
     return `
       <!DOCTYPE html>
       <html>
       <head>
+        <meta charset="utf-8"/>
         <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
         <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
         <style>
-          html, body, #map { height: 100%; margin: 0; padding: 0; background: #0b0f19; }
+          html, body, #map { height: 100%; width: 100%; margin: 0; padding: 0; background: #1a1e29; }
         </style>
       </head>
       <body>
         <div id="map"></div>
         <script>
-          var map = L.map('map').setView([${lat}, ${lon}], 14);
-          L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+          var map = L.map('map', { zoomControl: true }).setView([${lat}, ${lon}], 14);
+
+          L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
             maxZoom: 19,
-            attribution: '© OpenStreetMap contributors'
+            attribution: '&copy; OpenStreetMap contributors'
           }).addTo(map);
 
-          L.marker([${lat}, ${lon}]).addTo(map)
-            .bindPopup("<b>Traveler: ${alertItem.user?.fullName}</b><br/>Type: ${alertItem.emergencyType.toUpperCase()}")
+          var marker = L.marker([${lat}, ${lon}]).addTo(map)
+            .bindPopup("<b>Traveler: ${travelerName}</b><br/>Type: ${emergencyType}")
             .openPopup();
+
+          setTimeout(function() {
+            map.invalidateSize();
+          }, 250);
         </script>
       </body>
       </html>

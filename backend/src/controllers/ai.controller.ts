@@ -4,6 +4,9 @@ import { queryOllama } from '../services/ollama.service';
 import ResponseHelper from '../utils/response';
 import { NotFoundError } from '../utils/errors';
 import logger from '../utils/logger';
+import RoutingService from '../services/routing.service';
+import SafetyIntelligenceService, { EvaluatedRouteScore } from '../services/safetyIntelligence.service';
+import AiReasoningService from '../services/aiReasoning.service';
 
 // Prompt templates default mapping
 const DEFAULT_PROMPTS: Record<string, string> = {
@@ -53,30 +56,26 @@ export const aiChat = async (req: Request, res: Response, next: NextFunction): P
   const start = Date.now();
   try {
     const userId = (req as any).user.userId;
-    const { question, sessionId = 'default-session' } = req.body;
+    const { question, userLocation, sessionId = 'default-session' } = req.body;
 
-    const systemPrompt = await getPromptTemplate('system');
-    const fullPrompt = `${systemPrompt}\nUser Question: ${question}\nAssistant Response:`;
+    const lower = question.toLowerCase();
+    const isRouteQuery = lower.includes('route') || lower.includes('way') || lower.includes('travel') || lower.includes('reach') || lower.includes('going') || lower.includes('direction') || lower.includes('safest');
 
     let answer = '';
-    let modelUsed = 'phi3';
+    let modelUsed = '3-layer-safety-engine';
 
-    try {
-      answer = await queryOllama(fullPrompt);
-    } catch {
-      // Rule-based fallback responses
-      modelUsed = 'rule-engine';
-      const lower = question.toLowerCase();
-      if (lower.includes('safe') && (lower.includes('tonight') || lower.includes('travel'))) {
-        answer = 'Late night travel is warning flagged (10 PM to 5 AM). If you must travel, ensure your GPS live tracking remains active and share routes with emergency contacts.';
-      } else if (lower.includes('hotel') || lower.includes('hostel')) {
-        answer = 'We recommend searching safe hotel option. Look for places marked with verified badges, CCTV surveillance, 24x7 reception, and high lighting ratings.';
-      } else if (lower.includes('emergency') || lower.includes('sos')) {
-        answer = 'SOS checklist: 1. Move to a well-lit public area. 2. Share live tracking link. 3. Call emergency contacts or nearby police station. 4. Keep phone active.';
-      } else if (lower.includes('police')) {
-        answer = 'We have scanned OpenStreetMap police stations nearby. You can route to the nearest precinct directly using the Safe Map dashboard.';
-      } else {
-        answer = 'Hybrid Safety Engine: Travel precaution warnings active. Ensure guardians tracking links are enabled. Check local safety alerts overlays.';
+    if (isRouteQuery) {
+      answer = await generate3LayerRouteResponse(question, userLocation);
+    } else {
+      const systemPrompt = await getPromptTemplate('system');
+      const fullPrompt = `${systemPrompt}\nUser Question: ${question}\nAssistant Response:`;
+
+      try {
+        answer = await queryOllama(fullPrompt);
+        modelUsed = 'phi3';
+      } catch {
+        modelUsed = 'rule-engine';
+        answer = generateSmartFallbackResponse(question);
       }
     }
 
@@ -98,6 +97,158 @@ export const aiChat = async (req: Request, res: Response, next: NextFunction): P
   } catch (error) {
     next(error);
   }
+};
+
+const generate3LayerRouteResponse = async (question: string, userLocation?: string): Promise<string> => {
+  const lower = question.toLowerCase();
+
+  // Extract destination
+  let destination = '';
+  const knownCities = ['kottayam', 'kochi', 'trivandrum', 'thiruvananthapuram', 'calicut', 'kozhikode', 'thrissur', 'alappuzha', 'palakkad', 'kannur', 'bangalore', 'mumbai', 'delhi', 'chennai', 'munnar', 'wayanad', 'idukki', 'malappuram'];
+  
+  const destMatch = lower.match(/(?:to|towards|for|reach)\s+([a-zA-Z\s]+)/i);
+  if (destMatch && destMatch[1]) {
+    const clean = destMatch[1].replace(/\b(which|is|the|safest|best|good|route|path|way|to|for|a|an|from)\b/gi, '').trim();
+    if (clean.length > 2) destination = clean.charAt(0).toUpperCase() + clean.slice(1);
+  }
+
+  if (!destination) {
+    const foundCity = knownCities.find((c) => lower.includes(c));
+    if (foundCity) {
+      destination = foundCity.charAt(0).toUpperCase() + foundCity.slice(1);
+    }
+  }
+
+  if (!destination) destination = 'Kottayam';
+
+  // Extract origin: If a source is specified in prompt, use that source. Otherwise, take live location.
+  let origin = '';
+  const originMatch = lower.match(/(?:from|starting|departure|start at|leaving from)\s+([a-zA-Z\s]+)/i);
+  if (originMatch && originMatch[1]) {
+    const cleanOrigin = originMatch[1].replace(/\b(to|towards|for|the|a|an)\b/gi, '').trim();
+    if (cleanOrigin.length > 2) origin = cleanOrigin.charAt(0).toUpperCase() + cleanOrigin.slice(1);
+  }
+
+  if (!origin) {
+    if (userLocation && userLocation.trim().length > 0) {
+      origin = userLocation.trim();
+    } else {
+      origin = 'Trivandrum'; // Default live location
+    }
+  }
+
+  // Prevent origin == destination loop
+  if (origin.toLowerCase() === destination.toLowerCase()) {
+    if (origin.toLowerCase() === 'trivandrum') destination = 'Malappuram';
+    else destination = 'Kottayam';
+  }
+
+  try {
+    const routingResult = await RoutingService.getCandidateRoutes(origin, destination);
+    const evaluatedScores = new Map<string, EvaluatedRouteScore>();
+    
+    routingResult.routes.forEach((route) => {
+      const score = SafetyIntelligenceService.evaluateRoute(route, new Date(), ['prefer_highways', 'prefer_well_lit_roads']);
+      evaluatedScores.set(route.routeId, score);
+    });
+
+    const rec = await AiReasoningService.generateRecommendation(
+      {
+        origin: routingResult.originAddress,
+        destination: routingResult.destAddress,
+        departureTime: new Date().toLocaleString('en-US', { hour: 'numeric', minute: 'numeric', hour12: true, month: 'short', day: 'numeric' }),
+        modeOfTransport: 'car',
+        numberOfTravellers: 1,
+        preferences: ['prefer_highways', 'avoid_isolated_roads'],
+        priority: 'safest',
+      },
+      routingResult.routes,
+      evaluatedScores
+    );
+
+    return rec.aiExplanation;
+  } catch (err: any) {
+    if (err.statusCode === 404 || err.message?.includes('could not be found') || err.message?.includes('too far apart')) {
+      return `⚠️ **Location Error**: ${err.message}`;
+    }
+    return generateSmartFallbackResponse(question);
+  }
+};
+
+const generateSmartFallbackResponse = (question: string): string => {
+  const lower = question.toLowerCase();
+
+  // 1. Destination / Route Specific Query
+  const routeMatch = lower.match(/(?:to|towards|for)\s+([a-zA-Z\s]+)/i);
+  const mentionsRoute = lower.includes('route') || lower.includes('way') || lower.includes('travel') || lower.includes('drive') || lower.includes('reach') || lower.includes('going') || lower.includes('direction');
+  if (mentionsRoute || routeMatch) {
+    let destinationName = '';
+    const knownCities = ['kottayam', 'kochi', 'trivandrum', 'thiruvananthapuram', 'calicut', 'kozhikode', 'thrissur', 'alappuzha', 'palakkad', 'kannur', 'bangalore', 'mumbai', 'delhi', 'chennai'];
+    const foundCity = knownCities.find((c) => lower.includes(c));
+    if (foundCity) {
+      destinationName = foundCity.charAt(0).toUpperCase() + foundCity.slice(1);
+    } else if (routeMatch && routeMatch[1]) {
+      const clean = routeMatch[1].replace(/\b(which|is|the|safest|best|good|route|path|way|to|for|a|an)\b/gi, '').trim();
+      if (clean.length > 2) destinationName = clean.charAt(0).toUpperCase() + clean.slice(1);
+    }
+
+    const destTitle = destinationName ? `to ${destinationName}` : 'for your Journey';
+
+    return `📍 **Safest Route Advisory ${destTitle}**:\n\n` +
+      `1. **Recommended Primary Corridors**:\n` +
+      `   • Choose **National Highways (NH) or State Highways (SH)** (e.g. Main Central Road / NH 66) over isolated rural shortcuts.\n` +
+      `   • Prefer routes with active toll plazas, 24/7 fuel stations, high street lighting, and mobile network coverage.\n\n` +
+      `2. **Key Safety Precautions**:\n` +
+      `   • **Avoid Unlit Shortcuts**: Stay on arterial roads, especially after sunset. Avoid unlit inner roads through remote bypass belts.\n` +
+      `   • **Enable Live Trip Tracking**: Activate 'Live Trip Tracking' in the SafeTravel app so your guardians receive automatic location updates.\n` +
+      `   • **Planned Rest Stops**: Stop only at major, well-lit junctions, verified fuel centers, or KSRTC/Railway precincts.\n\n` +
+      `3. **Emergency Contacts & Helplines**:\n` +
+      `   • **Emergency Response**: Dial **112**\n` +
+      `   • **Women Helpline**: Dial **1091** or Pink Police **1515**`;
+  }
+
+  // 2. Late Night Travel
+  if (lower.includes('night') || lower.includes('tonight') || lower.includes('late') || lower.includes('midnight') || lower.includes('dark')) {
+    return `🌙 **Late Night Travel Safety Advisory (10 PM - 5 AM)**:\n\n` +
+      `1. **Live GPS Tracking**: Always activate SafeTravel Live Trip Sharing so trusted emergency contacts can track your movement in real-time.\n` +
+      `2. **Public Transit & Ridesharing**: Share cab driver/vehicle details (license plate, driver name) with family before embarking.\n` +
+      `3. **Well-Lit Waiting Zones**: Wait inside well-lit station premises or designated Safe Zones rather than deserted curbsides.\n` +
+      `4. **Quick Panic Access**: Keep the SafeTravel SOS emergency button or volume key shortcut ready on your phone.`;
+  }
+
+  // 3. Hotels & Accommodations
+  if (lower.includes('hotel') || lower.includes('hostel') || lower.includes('stay') || lower.includes('pg') || lower.includes('lodging') || lower.includes('room')) {
+    return `🏨 **Safe Accommodation Advisory**:\n\n` +
+      `1. **Verified Badges**: Select places tagged with Verified Safety Badges on SafeTravel.\n` +
+      `2. **Essential Safety Features**: Ensure 24/7 security guard presence, active CCTV coverage in corridors/entrances, and secure double locks.\n` +
+      `3. **Location Assessment**: Choose accommodations along main roads or well-lit commercial areas, avoiding hidden alleyways.\n` +
+      `4. **Women-Friendly Stays**: Check for female-staffed reception or women hostels in the Safe Places tab.`;
+  }
+
+  // 4. Emergency / Hazard / SOS
+  if (lower.includes('emergency') || lower.includes('sos') || lower.includes('danger') || lower.includes('followed') || lower.includes('help') || lower.includes('stalker') || lower.includes('unsafe')) {
+    return `🚨 **Emergency Protocol & Immediate Actions**:\n\n` +
+      `1. **Trigger SOS Panic Button**: Tap the red SOS button in your app immediately to broadcast live coordinates to emergency contacts and authorities.\n` +
+      `2. **Move to Safety**: Head toward the nearest well-lit public space, 24/7 convenience store, or open business establishment.\n` +
+      `3. **Emergency Helplines**: Call **112** (Emergency Response Support System) or **1091** (Women Helpline).\n` +
+      `4. **Make Noise / Seek Help**: Attract public attention if threatened or alert nearby security personnel.`;
+  }
+
+  // 5. Police & Precincts
+  if (lower.includes('police') || lower.includes('cop') || lower.includes('station') || lower.includes('precinct') || lower.includes('helpline')) {
+    return `👮 **Nearby Police & Emergency Support**:\n\n` +
+      `• SafeTravel has mapped nearby police stations with direct navigation links.\n` +
+      `• Use the **Safe Places** map tab to locate the nearest police station with 1-tap call and GPS directions.\n` +
+      `• Emergency Dials: **112** (National Emergency) | **1515** (Pink Police Patrol).`;
+  }
+
+  // 6. Default Safety Assistant Response
+  return `🛡️ **SafeTravel AI Assistant Guidance**:\n\n` +
+    `For maximum safety while traveling:\n` +
+    `1. Keep **Live Trip Tracking** enabled so trusted contacts can follow your progress.\n` +
+    `2. Check the **Safe Places** tab for verified hospitals, police stations, and safe havens along your route.\n` +
+    `3. Use the **Route Risk Analysis** feature to check safety scores before departing.\n\n` +
+    `How else can I assist you with travel safety, routes, or safe accommodations?`;
 };
 
 // Route Safety score calculation (0-100 score)

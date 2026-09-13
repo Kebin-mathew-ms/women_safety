@@ -45,6 +45,7 @@ export const addContact = async (req: Request, res: Response, next: NextFunction
     // If it's the first contact, automatically make it primary.
     // If setting this one to primary, update all others to not primary.
     const shouldBePrimary = contactCount === 0 ? true : isPrimary;
+    const finalPriority = priority ?? (contactCount + 1);
 
     await prisma.$transaction(async (tx) => {
       if (shouldBePrimary) {
@@ -60,7 +61,7 @@ export const addContact = async (req: Request, res: Response, next: NextFunction
           name,
           phone,
           relationship,
-          priority,
+          priority: finalPriority,
           isPrimary: shouldBePrimary,
         },
       });
@@ -131,7 +132,7 @@ export const editContact = async (req: Request, res: Response, next: NextFunctio
           name,
           phone,
           relationship,
-          priority,
+          priority: priority ?? contact.priority,
           isPrimary: req.body.isPrimary ?? isPrimary,
         },
       });

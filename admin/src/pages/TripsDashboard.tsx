@@ -99,11 +99,12 @@ export const TripsDashboard: React.FC = () => {
         <script>
           var map = L.map('map').setView([${srcLat}, ${srcLon}], 13);
           
-          // Layer OpenStreetMap tiles
-          L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+          L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
             maxZoom: 19,
-            attribution: '© OpenStreetMap contributors'
+            attribution: '&copy; OpenStreetMap contributors'
           }).addTo(map);
+
+          setTimeout(function() { map.invalidateSize(); }, 250);
 
           // Add Start and End markers
           var startMarker = L.marker([${srcLat}, ${srcLon}]).addTo(map).bindPopup("<b>Start Point</b><br/>${trip.sourceAddress}");

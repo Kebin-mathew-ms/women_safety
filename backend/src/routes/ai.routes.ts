@@ -7,8 +7,9 @@ import { aiChatSchema, aiRouteAnalysisSchema, aiHotelRecSchema, aiSafePlaceRecSc
 
 const router = Router();
 
-// Mobile AI endpoints (auth required)
+// Mobile & Web AI endpoints (auth required)
 router.post('/chat', auth, validate(aiChatSchema), aiController.aiChat);
+router.post('/ask', auth, validate(aiChatSchema), aiController.aiChat);
 router.post('/route-analysis', auth, validate(aiRouteAnalysisSchema), aiController.routeAnalysis);
 router.post('/hotel-recommendation', auth, validate(aiHotelRecSchema), aiController.hotelRecommendation);
 router.post('/safe-place-recommendation', auth, validate(aiSafePlaceRecSchema), aiController.safePlaceRecommendation);

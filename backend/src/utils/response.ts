@@ -5,6 +5,7 @@ export interface ApiResponse<T = any> {
   message: string;
   data?: T;
   errors?: any;
+  stack?: string;
   timestamp: string;
 }
 
@@ -34,12 +35,14 @@ export class ResponseHelper {
     res: Response,
     message: string,
     statusCode = 500,
-    errors?: any
+    errors?: any,
+    stack?: string
   ): Response<ApiResponse<null>> {
     const responseBody: ApiResponse<null> = {
       success: false,
       message,
-      errors: errors ?? undefined,
+      ...(errors !== undefined && errors !== null ? { errors } : {}),
+      ...(stack !== undefined && stack !== null ? { stack } : {}),
       timestamp: new Date().toISOString(),
     };
     return res.status(statusCode).json(responseBody);
