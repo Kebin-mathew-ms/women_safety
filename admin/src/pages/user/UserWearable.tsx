@@ -52,6 +52,36 @@ export const UserWearable: React.FC = () => {
 
   useEffect(() => { fetchStatus(); }, []);
 
+  // ⌚ PHYSICAL SMARTWATCH BLUETOOTH TRIGGER LISTENER
+  // When a smartwatch is connected to a laptop via Bluetooth (Camera Shutter or Music Remote mode),
+  // pressing the watch button sends a Bluetooth HID media key (VolumeDown, MediaPlayPause, etc.).
+  useEffect(() => {
+    const handleBluetoothKey = async (e: KeyboardEvent) => {
+      const isWatchKey = ['AudioVolumeDown', 'VolumeDown', 'AudioVolumeUp', 'VolumeUp', 'MediaPlayPause', 'MediaTrackNext', 'MediaSelect'].includes(e.key);
+      if (isWatchKey && devices.length > 0) {
+        console.log(`⚡ Physical Smartwatch Bluetooth Key Triggered (${e.key})!`);
+        const targetDev = devices[0];
+        try {
+          await userApiClient.post('/wearable/telemetry', {
+            macAddress: targetDev.macAddress,
+            action: 'double_tap',
+            batteryLevel: targetDev.batteryLevel || 90,
+          });
+          setSosTriggers(prev => [
+            ...prev,
+            `⚡ Physical Watch Signal (${e.key}) received at ${new Date().toLocaleTimeString()} — Auto-SOS Triggered!`
+          ]);
+          fetchStatus();
+        } catch (err) {
+          console.error('Failed to log watch key telemetry:', err);
+        }
+      }
+    };
+
+    window.addEventListener('keydown', handleBluetoothKey);
+    return () => window.removeEventListener('keydown', handleBluetoothKey);
+  }, [devices]);
+
   const handlePair = async () => {
     if (!deviceName.trim() || !macAddress.trim()) { setError('Please enter device name and MAC address'); return; }
     const macRegex = /^([0-9A-Fa-f]{2}[:-]){5}([0-9A-Fa-f]{2})$/;
@@ -93,6 +123,119 @@ export const UserWearable: React.FC = () => {
     } catch (e: any) {
       setError(e.response?.data?.message || 'Simulation failed');
     } finally { setSimulating(null); }
+  };
+
+  const handleConnectWebBluetooth = async (macAddr: string, deviceId: string) => {
+    const nav = navigator as any;
+    if (!nav.bluetooth) {
+      setError('Web Bluetooth is not supported in this browser. Please use Chrome or Edge.');
+      return;
+    }
+    setError(null);
+    setSuccess(null);
+    try {
+      setSuccess(`🔍 Scanning for physical Bluetooth smartwatch (Device ID: ${deviceId})... Select your watch in the popup.`);
+      const device = await nav.bluetooth.requestDevice({
+        acceptAllDevices: true,
+        optionalServices: [
+          'battery_service',
+          0x180F,
+          0x180A,
+          0x1802,
+          0x1803,
+          0x180D,
+          '0000180f-0000-1000-8000-00805f9b34fb',
+          '0000180a-0000-1000-8000-00805f9b34fb',
+          '0000ffe0-0000-1000-8000-00805f9b34fb',
+        ],
+      });
+
+      if (!device.gatt) {
+        throw new Error('Bluetooth GATT not supported on this device.');
+      }
+
+      setSuccess(`⌛ Connecting GATT server to ${device.name || 'smartwatch'}...`);
+      const server = await device.gatt.connect();
+
+      // Find current device battery level from state or default
+      const currentDev = devices.find(d => d.deviceId === deviceId);
+      let liveBattery: number = currentDev ? currentDev.batteryLevel : 90;
+
+      // Try reading exact battery level from GATT battery_service
+      const batteryUUIDs = ['battery_service', 0x180F, '0000180f-0000-1000-8000-00805f9b34fb'];
+      for (const uuid of batteryUUIDs) {
+        try {
+          const service = await server.getPrimaryService(uuid);
+          const characteristic = await service.getCharacteristic('battery_level');
+          const value = await characteristic.readValue();
+          const readVal = value.getUint8(0);
+          if (readVal !== undefined && !isNaN(readVal)) {
+            liveBattery = readVal;
+            break;
+          }
+        } catch {
+          // Continue checking other UUIDs
+        }
+      }
+
+      // Sync connected state and battery to backend API
+      await userApiClient.post('/wearable/telemetry', {
+        macAddress: macAddr,
+        action: 'connect',
+        batteryLevel: liveBattery,
+      });
+
+      // Subscribe to GATT notifications for physical button taps / double-clicks
+      try {
+        const services = await server.getPrimaryServices();
+        for (const service of services) {
+          try {
+            const characteristics = await service.getCharacteristics();
+            for (const char of characteristics) {
+              if (char.properties.notify || char.properties.indicate) {
+                await char.startNotifications();
+                char.addEventListener('characteristicvaluechanged', async () => {
+                  // Physical hardware notification triggered!
+                  await userApiClient.post('/wearable/telemetry', {
+                    macAddress: macAddr,
+                    action: 'double_tap',
+                    batteryLevel: liveBattery,
+                  });
+                  setSosTriggers(prev => [
+                    ...prev,
+                    `⚡ Physical Watch Button Signal received (${new Date().toLocaleTimeString()}) — Auto-SOS triggered!`
+                  ]);
+                  fetchStatus();
+                });
+              }
+            }
+          } catch {
+            // Ignore characteristics without permission
+          }
+        }
+      } catch {
+        // GATT notification scanning unsupported or blocked
+      }
+
+      setSuccess(`🟢 Connected to ${device.name || 'Watch'}! Battery: ${liveBattery}%. Physical trigger listener active.`);
+      fetchStatus();
+
+      // Listen for disconnect
+      device.addEventListener('gattserverdisconnected', async () => {
+        await userApiClient.post('/wearable/telemetry', {
+          macAddress: macAddr,
+          action: 'disconnect',
+          batteryLevel: liveBattery,
+        });
+        fetchStatus();
+      });
+    } catch (e: any) {
+      if (e.name !== 'NotFoundError') {
+        setError(e.message || 'Bluetooth connection failed.');
+      } else {
+        setSuccess(null);
+      }
+    }
   };
 
   return (
@@ -170,7 +313,9 @@ export const UserWearable: React.FC = () => {
                         ⌚
                       </Box>
                       <Box>
-                        <Typography variant="subtitle1" fontWeight="bold" color="text.primary">{device.deviceName}</Typography>
+                        <Typography variant="subtitle1" fontWeight="bold" color="text.primary">
+                          {device.deviceName && !device.deviceName.includes('@') ? device.deviceName : 'ARCADE Smartwatch'}
+                        </Typography>
                         <Typography variant="caption" color="text.secondary">MAC: {device.macAddress}</Typography>
                       </Box>
                     </Box>
@@ -206,6 +351,16 @@ export const UserWearable: React.FC = () => {
                     <Typography variant="caption" color="text.secondary" fontWeight={700} display="block" mb={1}>
                       🧪 SIMULATE TELEMETRY EVENT
                     </Typography>
+                    <Box display="flex" gap={1} flexWrap="wrap" mb={1}>
+                      <Button
+                        size="small"
+                        variant="contained"
+                        onClick={() => handleConnectWebBluetooth(device.macAddress, device.deviceId)}
+                        sx={{ background: 'linear-gradient(135deg, #3b82f6, #6366f1)', fontSize: 11, fontWeight: 700 }}
+                      >
+                        🔵 Connect Live via Bluetooth
+                      </Button>
+                    </Box>
                     <Box display="flex" gap={1} flexWrap="wrap">
                       {[
                         { action: 'connect', label: '🟢 Connect', color: '#10b981' },
@@ -228,6 +383,14 @@ export const UserWearable: React.FC = () => {
                     <Typography variant="caption" color="warning.main" display="block" mt={1}>
                       ⚠️ Fall Detected and Double Tap will automatically create a live SOS alert!
                     </Typography>
+                    <Box mt={1.5} p={1.5} sx={{ borderRadius: 2, background: 'rgba(59,130,246,0.06)', border: '1px solid rgba(59,130,246,0.2)' }}>
+                      <Typography variant="caption" color="info.light" fontWeight={700} display="block">
+                        📸 Physical Watch Button Trigger (Zero-App Laptop Mode):
+                      </Typography>
+                      <Typography variant="caption" color="text.secondary" display="block">
+                        Pair your watch to your laptop via Bluetooth. Open <b>Camera Remote</b> or <b>Music Control</b> on your smartwatch screen — tapping the watch shutter button sends a live Bluetooth signal directly to this Web App to trigger Auto-SOS!
+                      </Typography>
+                    </Box>
                   </Box>
 
                   {/* Telemetry Logs */}
