@@ -61,13 +61,25 @@ export class SmsService {
       try {
         if (!fast2smsKey) throw new Error('FAST2SMS_API_KEY missing in .env');
 
+        const cleanPhone = toPhone.replace(/[^0-9]/g, '');
+        // Fast2SMS requires 10-digit Indian mobile numbers without +91 or leading 0
+        const normalizedPhone = cleanPhone.length > 10 ? cleanPhone.slice(-10) : cleanPhone;
+
+        if (normalizedPhone.length !== 10) {
+          logger.warn(`⚠️ Invalid 10-digit phone number for Fast2SMS: ${toPhone} (normalized: ${normalizedPhone})`);
+          logger.info(`📲 [SIMULATED CELLULAR SMS DISPATCH] To: ${toPhone} | Message: "${messageBody}"`);
+          return false;
+        }
+
+        const fast2smsRoute = process.env.FAST2SMS_ROUTE || 'q';
+
         const res = await axios.post(
           'https://www.fast2sms.com/dev/bulkV2',
           {
-            route: 'v3',
-            sender_id: 'TXTIND',
+            route: fast2smsRoute,
             message: messageBody,
-            numbers: toPhone.replace(/[^0-9]/g, ''),
+            language: 'english',
+            numbers: normalizedPhone,
           },
           {
             headers: {
@@ -78,7 +90,7 @@ export class SmsService {
         );
 
         if (res.data && res.data.return === false) {
-          logger.warn(`⚠️ Fast2SMS API Notice for ${toPhone}: ${res.data.message || 'Transaction required'}`);
+          logger.warn(`⚠️ Fast2SMS API Notice for ${toPhone}: ${res.data.message || 'Transaction rejected'}`);
           logger.info(`📲 [SIMULATED CELLULAR SMS DISPATCH] To: ${toPhone} | Message: "${messageBody}"`);
           return false;
         }
