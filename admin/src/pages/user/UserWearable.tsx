@@ -110,11 +110,33 @@ export const UserWearable: React.FC = () => {
   const handleSimulate = async (macAddr: string, action: string, deviceId: string) => {
     setSimulating(`${deviceId}-${action}`);
     setError(null);
+
+    let lat = 9.9312;
+    let lon = 76.2673;
+    let addressStr = 'Smartwatch Wearable Device Trigger';
+
+    if (navigator.geolocation && (action === 'fall_detected' || action === 'double_tap')) {
+      try {
+        const pos: GeolocationPosition = await new Promise((resolve, reject) => {
+          navigator.geolocation.getCurrentPosition(resolve, reject, {
+            enableHighAccuracy: true,
+            timeout: 2000,
+          });
+        });
+        lat = pos.coords.latitude;
+        lon = pos.coords.longitude;
+        addressStr = `Live GPS: ${lat.toFixed(4)}, ${lon.toFixed(4)}`;
+      } catch {}
+    }
+
     try {
       await userApiClient.post('/wearable/telemetry', {
         macAddress: macAddr,
         action,
         batteryLevel: Math.floor(Math.random() * 30) + 65,
+        latitude: lat,
+        longitude: lon,
+        address: addressStr,
       });
       if (action === 'fall_detected' || action === 'double_tap') {
         setSosTriggers(prev => [...prev, `${getActionLabel(action)} at ${new Date().toLocaleTimeString()} — Auto-SOS triggered!`]);
@@ -200,6 +222,7 @@ export const UserWearable: React.FC = () => {
                     macAddress: macAddr,
                     action: 'double_tap',
                     batteryLevel: liveBattery,
+                    address: 'Physical Smartwatch Hardware Button Trigger',
                   });
                   setSosTriggers(prev => [
                     ...prev,

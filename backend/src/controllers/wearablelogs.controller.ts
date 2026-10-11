@@ -4,6 +4,7 @@ import { socketManager } from '../socket';
 import ResponseHelper from '../utils/response';
 import { NotFoundError } from '../utils/errors';
 import logger from '../utils/logger';
+import SmsService from '../services/sms.service';
 
 export const logTelemetry = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
@@ -46,24 +47,50 @@ export const logTelemetry = async (req: Request, res: Response, next: NextFuncti
     // ✅ AUTO-SOS: Automatically trigger SOS if fall_detected or double_tap received
     if (action === 'fall_detected' || action === 'double_tap') {
       try {
-        // Check no existing active SOS for this user
-        const existingActiveSos = await prisma.sOSAlert.findFirst({
+        const user = await prisma.user.findUnique({
+          where: { userId: device.userId },
+          select: { fullName: true, phone: true, latitude: true, longitude: true, address: true },
+        });
+
+        const reqLat = req.body.latitude != null ? Number(req.body.latitude) : null;
+        const reqLon = req.body.longitude != null ? Number(req.body.longitude) : null;
+
+        const latitude = reqLat != null && !isNaN(reqLat) && reqLat !== 0
+          ? reqLat
+          : (user?.latitude && user.latitude !== 0 ? user.latitude : 9.9312);
+
+        const longitude = reqLon != null && !isNaN(reqLon) && reqLon !== 0
+          ? reqLon
+          : (user?.longitude && user.longitude !== 0 ? user.longitude : 76.2673);
+
+        const emergencyLabel = action === 'fall_detected' ? 'Fall Detection' : 'Smartwatch Double-Tap';
+        const address = req.body.address || user?.address || `Live Wearable GPS: ${latitude.toFixed(4)}, ${longitude.toFixed(4)}`;
+
+        const contacts = await prisma.emergencyContact.findMany({ where: { userId: device.userId } });
+
+        let autoSos = await prisma.sOSAlert.findFirst({
           where: { userId: device.userId, status: 'active' },
         });
 
-        if (!existingActiveSos) {
-          // Fetch user info for the alert
-          const user = await prisma.user.findUnique({
-            where: { userId: device.userId },
-            select: { fullName: true, phone: true, latitude: true, longitude: true },
+        if (autoSos) {
+          autoSos = await prisma.sOSAlert.update({
+            where: { sosId: autoSos.sosId },
+            data: {
+              wearableActivated: true,
+              triggeredBy: 'wearable',
+              emergencyType: action === 'fall_detected' ? 'fall_detection' : 'wearable_tap',
+              latitude,
+              longitude,
+              address,
+            },
           });
-
-          const autoSos = await prisma.sOSAlert.create({
+        } else {
+          autoSos = await prisma.sOSAlert.create({
             data: {
               userId: device.userId,
-              latitude: user?.latitude || 0,
-              longitude: user?.longitude || 0,
-              address: 'Auto-detected via Wearable Device',
+              latitude,
+              longitude,
+              address,
               emergencyType: action === 'fall_detected' ? 'fall_detection' : 'wearable_tap',
               triggeredBy: 'wearable',
               wearableActivated: true,
@@ -71,43 +98,72 @@ export const logTelemetry = async (req: Request, res: Response, next: NextFuncti
             },
           });
 
-          // Notify emergency contacts
-          const contacts = await prisma.emergencyContact.findMany({ where: { userId: device.userId } });
-          await Promise.all(contacts.map((contact) =>
-            prisma.sOSRecipient.create({
-              data: {
-                sosId: autoSos.sosId,
-                contactId: contact.contactId,
-                notificationStatus: 'delivered',
-                deliveredAt: new Date(),
-              },
-            })
-          ));
+          if (contacts.length > 0) {
+            await Promise.all(
+              contacts.map((contact) =>
+                prisma.sOSRecipient.create({
+                  data: {
+                    sosId: autoSos!.sosId,
+                    contactId: contact.contactId,
+                    notificationStatus: 'delivered',
+                    deliveredAt: new Date(),
+                  },
+                })
+              )
+            );
+          }
+        }
 
-          // Broadcast to admin operators
-          socketManager.emitToRoom('admin-operators', 'sos-created', {
-            sosId: autoSos.sosId,
-            userId: device.userId,
-            fullName: user?.fullName,
-            phone: user?.phone,
+        // Broadcast to admin operators
+        socketManager.emitToRoom('admin-operators', 'sos-created', {
+          sosId: autoSos.sosId,
+          userId: device.userId,
+          fullName: user?.fullName || 'Traveler',
+          phone: user?.phone || 'Unknown Phone',
+          latitude: autoSos.latitude,
+          longitude: autoSos.longitude,
+          address: autoSos.address,
+          emergencyType: autoSos.emergencyType,
+          triggeredBy: 'wearable',
+          wearableDevice: device.deviceName,
+          createdAt: autoSos.createdAt.toISOString(),
+        });
+
+        // Dispatch real Cellular SMS alerts to emergency contacts asynchronously
+        if (contacts.length > 0) {
+          SmsService.dispatchSOSAlerts({
+            userName: user?.fullName || 'SafeTravel User',
+            userPhone: user?.phone || 'Unknown Phone',
+            locationAddress: autoSos.address,
             latitude: autoSos.latitude,
             longitude: autoSos.longitude,
-            address: autoSos.address,
-            emergencyType: autoSos.emergencyType,
-            triggeredBy: 'wearable',
-            wearableDevice: device.deviceName,
-            createdAt: autoSos.createdAt.toISOString(),
-          });
-
-          // Notify the user's own socket room
-          socketManager.emitToRoom(`user:${device.userId}`, 'wearable-sos-triggered', {
             sosId: autoSos.sosId,
-            action,
-            deviceName: device.deviceName,
-          });
-
-          logger.info(`🚨 AUTO-SOS triggered by wearable ${device.deviceName} (${action}) for user ${device.userId}`);
+            emergencyType: autoSos.emergencyType,
+            contacts: contacts.map((c) => ({ name: c.name, phone: c.phone })),
+          }).catch((err) => logger.error(`Failed to dispatch emergency SMS from wearable: ${err.message}`));
+        } else {
+          logger.warn(`No emergency contacts found for user ${device.userId} to send SMS`);
         }
+
+        // Create notification record for user
+        await prisma.notification.create({
+          data: {
+            userId: device.userId,
+            title: `🚨 Wearable ${emergencyLabel} SOS`,
+            message: `Emergency SOS triggered from ${device.deviceName} at ${autoSos.address}. Guardians and emergency operators notified.`,
+            type: 'sos_alert',
+            priority: 'critical',
+          },
+        }).catch(() => {});
+
+        // Notify the user's own socket room
+        socketManager.emitToRoom(`user:${device.userId}`, 'wearable-sos-triggered', {
+          sosId: autoSos.sosId,
+          action,
+          deviceName: device.deviceName,
+        });
+
+        logger.info(`🚨 AUTO-SOS triggered by wearable ${device.deviceName} (${action}) for user ${device.userId} [Alert ID: ${autoSos.sosId}]`);
       } catch (sosError) {
         // Log but don't fail the telemetry response
         logger.error(`Failed to auto-create SOS from wearable event: ${sosError}`);

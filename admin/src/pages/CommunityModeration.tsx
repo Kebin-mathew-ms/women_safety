@@ -1,8 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import {
   Box, Typography, Paper, Table, TableHead, TableRow, TableCell, TableBody,
-  Chip, CircularProgress, Alert, Button,
-  IconButton, Tabs, Tab, Pagination
+  Chip, CircularProgress, Alert,
+  IconButton, Pagination
 } from '@mui/material';
 import { Block as BlockIcon, VisibilityOff as HideIcon, Delete as DeleteIcon } from '@mui/icons-material';
 import axios from 'axios';
@@ -10,13 +10,9 @@ import axios from 'axios';
 const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
 
 const CommunityModeration: React.FC = () => {
-  const [tab, setTab] = useState(0);
   const [posts, setPosts] = useState<any[]>([]);
-  const [reports, setReports] = useState<any[]>([]);
   const [totalPosts, setTotalPosts] = useState(0);
-  const [totalReports, setTotalReports] = useState(0);
   const [postPage, setPostPage] = useState(1);
-  const [reportPage, setReportPage] = useState(1);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
@@ -28,27 +24,30 @@ const CommunityModeration: React.FC = () => {
     setLoading(true);
     try {
       const res = await axios.get(`${API_BASE}/admin2/community/posts?page=${postPage}&limit=15`, { headers });
-      if (res.data.success) { setPosts(res.data.data.posts); setTotalPosts(res.data.data.total); }
-    } catch { setError('Failed to load posts.'); } finally { setLoading(false); }
+      if (res.data.success) {
+        setPosts(res.data.data.posts);
+        setTotalPosts(res.data.data.total);
+      }
+    } catch {
+      setError('Failed to load posts.');
+    } finally {
+      setLoading(false);
+    }
   };
 
-  const fetchReports = async () => {
-    setLoading(true);
-    try {
-      const res = await axios.get(`${API_BASE}/admin2/community/reports?page=${reportPage}&limit=15`, { headers });
-      if (res.data.success) { setReports(res.data.data.reports); setTotalReports(res.data.data.total); }
-    } catch { setError('Failed to load reports.'); } finally { setLoading(false); }
-  };
-
-  useEffect(() => { if (tab === 0) fetchPosts(); else fetchReports(); }, [tab, postPage, reportPage]);
+  useEffect(() => {
+    fetchPosts();
+  }, [postPage]);
 
   const action = async (url: string, method: 'put' | 'delete', body?: object, msg = 'Done') => {
     try {
       if (method === 'delete') await axios.delete(url, { headers });
       else await axios.put(url, body ?? {}, { headers });
       setSuccess(msg);
-      if (tab === 0) fetchPosts(); else fetchReports();
-    } catch { setError('Action failed.'); }
+      fetchPosts();
+    } catch {
+      setError('Action failed.');
+    }
   };
 
   const CATEGORY_COLORS: Record<string, string> = {
@@ -61,22 +60,15 @@ const CommunityModeration: React.FC = () => {
     <Box>
       <Box sx={{ mb: 3 }}>
         <Typography variant="h5" fontWeight="bold">🛡️ Community Moderation</Typography>
-        <Typography variant="body2" color="text.secondary">Review, hide, delete posts and resolve user reports.</Typography>
+        <Typography variant="body2" color="text.secondary">Review, hide, and manage community posts.</Typography>
       </Box>
 
       {error && <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError(null)}>{error}</Alert>}
       {success && <Alert severity="success" sx={{ mb: 2 }} onClose={() => setSuccess(null)}>{success}</Alert>}
 
-      <Paper elevation={0} sx={{ border: '1px solid', borderColor: 'divider', borderRadius: 2, mb: 2 }}>
-        <Tabs value={tab} onChange={(_e, v) => setTab(v)} sx={{ borderBottom: '1px solid', borderColor: 'divider' }}>
-          <Tab label={`Posts (${totalPosts})`} />
-          <Tab label={`Reported Posts (${totalReports})`} />
-        </Tabs>
-      </Paper>
-
       {loading ? (
         <Box sx={{ display: 'flex', justifyContent: 'center', mt: 6 }}><CircularProgress /></Box>
-      ) : tab === 0 ? (
+      ) : (
         <>
           <Paper elevation={0} sx={{ border: '1px solid', borderColor: 'divider', borderRadius: 2 }}>
             <Table size="small">
@@ -127,7 +119,16 @@ const CommunityModeration: React.FC = () => {
                         <DeleteIcon fontSize="small" />
                       </IconButton>
                       <IconButton size="small" title="Ban User"
-                        onClick={() => action(`${API_BASE}/admin2/community/users/${p.user?.userId || ''}/ban`, 'put', { reason: 'Admin action' }, 'User banned')}>
+                        onClick={() => {
+                          const targetUserId = p.user?.userId || p.userId;
+                          if (!targetUserId) {
+                            setError('User ID not found for this post.');
+                            return;
+                          }
+                          if (window.confirm(`Are you sure you want to ban author "${p.user?.fullName || 'this user'}"?`)) {
+                            action(`${API_BASE}/admin2/community/users/${targetUserId}/ban`, 'put', { reason: 'Admin action' }, 'User banned');
+                          }
+                        }}>
                         <BlockIcon fontSize="small" sx={{ color: '#ef4444' }} />
                       </IconButton>
                     </TableCell>
@@ -138,54 +139,6 @@ const CommunityModeration: React.FC = () => {
           </Paper>
           <Box sx={{ display: 'flex', justifyContent: 'center', mt: 2 }}>
             <Pagination count={Math.ceil(totalPosts / 15)} page={postPage} onChange={(_e, p) => setPostPage(p)} color="primary" />
-          </Box>
-        </>
-      ) : (
-        <>
-          <Paper elevation={0} sx={{ border: '1px solid', borderColor: 'divider', borderRadius: 2 }}>
-            <Table size="small">
-              <TableHead>
-                <TableRow sx={{ bgcolor: 'action.hover' }}>
-                  <TableCell sx={{ fontWeight: 'bold' }}>Post</TableCell>
-                  <TableCell sx={{ fontWeight: 'bold' }}>Reported By</TableCell>
-                  <TableCell sx={{ fontWeight: 'bold' }}>Reason</TableCell>
-                  <TableCell sx={{ fontWeight: 'bold' }}>Status</TableCell>
-                  <TableCell sx={{ fontWeight: 'bold' }}>Date</TableCell>
-                  <TableCell sx={{ fontWeight: 'bold' }}>Actions</TableCell>
-                </TableRow>
-              </TableHead>
-              <TableBody>
-                {reports.length === 0 ? (
-                  <TableRow><TableCell colSpan={6} align="center" sx={{ py: 4, color: 'text.secondary' }}>No reports.</TableCell></TableRow>
-                ) : reports.map((r) => (
-                  <TableRow key={r.reportId} hover>
-                    <TableCell>
-                      <Typography variant="caption" fontWeight="bold">{r.post?.title ?? '—'}</Typography>
-                    </TableCell>
-                    <TableCell><Typography variant="caption">{r.reporter?.fullName ?? '—'}</Typography></TableCell>
-                    <TableCell><Typography variant="caption">{r.reason}</Typography></TableCell>
-                    <TableCell>
-                      <Chip label={r.status} size="small"
-                        sx={{ fontSize: 9, bgcolor: r.status === 'pending' ? '#f59e0b20' : '#10b98120', color: r.status === 'pending' ? '#f59e0b' : '#10b981' }} />
-                    </TableCell>
-                    <TableCell sx={{ fontSize: 11 }}>{new Date(r.createdAt).toLocaleDateString()}</TableCell>
-                    <TableCell>
-                      <Button size="small" variant="outlined" sx={{ fontSize: 10, mr: 0.5 }}
-                        onClick={() => action(`${API_BASE}/admin2/community/reports/${r.reportId}`, 'put', { action: 'dismiss' }, 'Report dismissed')}>
-                        Dismiss
-                      </Button>
-                      <Button size="small" variant="contained" color="error" sx={{ fontSize: 10 }}
-                        onClick={() => action(`${API_BASE}/admin2/community/reports/${r.reportId}`, 'put', { action: 'delete_post' }, 'Post deleted')}>
-                        Delete Post
-                      </Button>
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </Paper>
-          <Box sx={{ display: 'flex', justifyContent: 'center', mt: 2 }}>
-            <Pagination count={Math.ceil(totalReports / 15)} page={reportPage} onChange={(_e, p) => setReportPage(p)} color="primary" />
           </Box>
         </>
       )}

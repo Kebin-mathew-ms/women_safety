@@ -20,6 +20,9 @@ export const updatePreferencesSchema = z.object({
 export const voiceCommandSchema = z.object({
   body: z.object({
     command: z.string({ required_error: 'Speech command string is required' }).trim().min(1),
+    latitude: z.coerce.number().optional().nullable(),
+    longitude: z.coerce.number().optional().nullable(),
+    address: z.string().optional().nullable(),
   }),
 });
 
@@ -28,5 +31,8 @@ export const wearableLogSchema = z.object({
     macAddress: z.string({ required_error: 'MAC Address is required' }).trim(),
     action: z.enum(['connect', 'disconnect', 'double_tap', 'fall_detected', 'battery_low']),
     batteryLevel: z.coerce.number().min(0).max(100),
+    latitude: z.coerce.number().optional().nullable(),
+    longitude: z.coerce.number().optional().nullable(),
+    address: z.string().optional().nullable(),
   }),
 });

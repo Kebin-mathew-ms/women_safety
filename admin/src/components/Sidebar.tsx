@@ -12,7 +12,6 @@ import {
   ExitToApp as LogoutIcon,
   LocationOn as LocationIcon,
   ReportProblem as HazardIcon,
-  Feedback as FeedbackIcon,
   Campaign as BroadcastIcon,
   RecordVoiceOver as VoiceIcon,
   Watch as WatchIcon,
@@ -20,7 +19,6 @@ import {
   Tune as TuneIcon,
   Gavel as AuditIcon,
   VerifiedUser as RolesIcon,
-  Notifications as AnnouncementsIcon,
   Assessment as ReportsIcon,
   Forum as CommunityIcon,
   Search as SearchIcon,
@@ -52,7 +50,6 @@ const MENU_GROUPS = [
     items: [
       { text: 'User Directory',       icon: <UsersIcon />,         path: '/users',       color: '#93c5fd' },
       { text: 'Community Moderation', icon: <CommunityIcon />,     path: '/community',   color: '#fbbf24' },
-      { text: 'Reported Posts',       icon: <FeedbackIcon />,      path: '/reports-mod', color: '#fca5a5' },
     ],
   },
   {
@@ -65,7 +62,6 @@ const MENU_GROUPS = [
     label: '📣 Notifications',
     items: [
       { text: 'Broadcasts',     icon: <BroadcastIcon />, path: '/notifications', color: '#c4b5fd' },
-      { text: 'Announcements',  icon: <AnnouncementsIcon />, path: '/announcements', color: '#c4b5fd' },
     ],
   },
   {

@@ -85,11 +85,11 @@ export const listNotifications = async (req: Request, res: Response, next: NextF
 export const markNotificationsRead = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
     const userId = (req as any).user.userId;
-    const { notificationId } = req.body;
+    const targetId = req.params.id || req.body?.notificationId || req.body?.id;
 
     const whereClause: any = { userId };
-    if (notificationId) {
-      whereClause.notificationId = notificationId;
+    if (targetId) {
+      whereClause.notificationId = targetId;
     }
 
     await prisma.notification.updateMany({
@@ -97,7 +97,7 @@ export const markNotificationsRead = async (req: Request, res: Response, next: N
       data: { isRead: true, readAt: new Date() },
     });
 
-    socketManager.emitToRoom(`user:${userId}`, 'notification-read', { notificationId });
+    socketManager.emitToRoom(`user:${userId}`, 'notification-read', { notificationId: targetId });
     ResponseHelper.success(res, 'Notifications marked read successfully');
   } catch (error) {
     next(error);
@@ -119,6 +119,19 @@ export const deleteNotification = async (req: Request, res: Response, next: Next
 
     socketManager.emitToRoom(`user:${userId}`, 'notification-deleted', { notificationId: id });
     ResponseHelper.success(res, 'Notification deleted successfully');
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const clearAllNotifications = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+  try {
+    const userId = (req as any).user.userId;
+    await prisma.notification.deleteMany({
+      where: { userId },
+    });
+    socketManager.emitToRoom(`user:${userId}`, 'notifications-cleared', {});
+    ResponseHelper.success(res, 'All notifications cleared successfully');
   } catch (error) {
     next(error);
   }

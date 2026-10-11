@@ -21,7 +21,7 @@ export const listPosts = async (req: Request, res: Response, next: NextFunction)
         take: parseInt(limit as string),
         orderBy: { createdAt: 'desc' },
         include: {
-          user: { select: { fullName: true, email: true } },
+          user: { select: { userId: true, fullName: true, email: true } },
           _count: { select: { postComments: true, postLikes: true, reportedPosts: true } },
         },
       }),
@@ -96,8 +96,8 @@ export const listReportedPosts = async (req: Request, res: Response, next: NextF
         take: parseInt(limit as string),
         orderBy: { createdAt: 'desc' },
         include: {
-          post: { include: { user: { select: { fullName: true, email: true } } } },
-          reporter: { select: { fullName: true, email: true } },
+          post: { include: { user: { select: { userId: true, fullName: true, email: true } } } },
+          reporter: { select: { userId: true, fullName: true, email: true } },
         },
       }),
     ]);

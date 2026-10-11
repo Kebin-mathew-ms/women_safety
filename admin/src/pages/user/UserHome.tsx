@@ -57,17 +57,49 @@ export const UserHome: React.FC = () => {
     setVoiceError(null);
     setVoiceResponse(null);
 
+    let lat = 9.9312;
+    let lon = 76.2673;
+    let addressStr = 'Voice Assistant Emergency Trigger';
+
+    if (navigator.geolocation) {
+      try {
+        const pos: GeolocationPosition = await new Promise((resolve, reject) => {
+          navigator.geolocation.getCurrentPosition(resolve, reject, {
+            enableHighAccuracy: true,
+            timeout: 2500,
+          });
+        });
+        lat = pos.coords.latitude;
+        lon = pos.coords.longitude;
+        addressStr = `Live GPS: ${lat.toFixed(4)}, ${lon.toFixed(4)}`;
+      } catch (geoErr) {
+        console.warn('Geolocation capture fallback:', geoErr);
+      }
+    }
+
     try {
-      const res = await userApiClient.post('/voice/command', { command: text });
+      const res = await userApiClient.post('/voice/command', {
+        command: text,
+        latitude: lat,
+        longitude: lon,
+        address: addressStr,
+      });
       if (res.data.success) {
+        const action = res.data.data.action;
+        const responseText = res.data.data.responseText;
         setVoiceResponse({
-          action: res.data.data.action,
-          responseText: res.data.data.responseText,
+          action,
+          responseText,
         });
         setVoiceText('');
 
+        if (action === 'sos_trigger') {
+          setSosSuccess(true);
+          setTimeout(() => setSosSuccess(false), 6000);
+        }
+
         if ('speechSynthesis' in window) {
-          const utterance = new SpeechSynthesisUtterance(res.data.data.responseText);
+          const utterance = new SpeechSynthesisUtterance(responseText);
           window.speechSynthesis.speak(utterance);
         }
       }

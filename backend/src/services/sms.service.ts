@@ -23,8 +23,14 @@ export class SmsService {
     const twilioFrom = process.env.TWILIO_PHONE_NUMBER;
     const fast2smsKey = process.env.FAST2SMS_API_KEY;
 
+    // 0. Simulation Mode (Explicitly avoids using API credits during development/testing)
+    if (provider === 'simulation' || provider === 'mock' || provider === 'test') {
+      logger.info(`📲 [SIMULATED CELLULAR SMS DISPATCH] To: ${toPhone} | Message: "${messageBody}"`);
+      return true;
+    }
+
     // 1. Twilio SMS Integration
-    if (provider === 'twilio' || (twilioSid && twilioToken && twilioFrom)) {
+    if (provider === 'twilio' || (twilioSid && twilioToken && twilioFrom && !provider)) {
       try {
         if (!twilioSid || !twilioToken || !twilioFrom) {
           throw new Error('Twilio credentials (TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_PHONE_NUMBER) missing in .env');
