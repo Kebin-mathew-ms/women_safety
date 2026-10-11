@@ -8,15 +8,20 @@ import logger from '../utils/logger';
 export const createCrimeReport = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
     const userId = (req as any).user.userId;
-    const { latitude, longitude, address, category, severity, description, anonymous } = req.body;
+    const { latitude, longitude, address, category, hazardType, severity, description, anonymous } = req.body;
+
+    const reportCategory = category || hazardType || 'other';
+    const reportAddress = (address && typeof address === 'string' && address.trim().length > 0)
+      ? address.trim()
+      : 'Current Location';
 
     const report = await prisma.crimeReport.create({
       data: {
         userId,
-        latitude,
-        longitude,
-        address,
-        category,
+        latitude: latitude !== undefined ? parseFloat(latitude) : 0,
+        longitude: longitude !== undefined ? parseFloat(longitude) : 0,
+        address: reportAddress,
+        category: reportCategory,
         severity: severity || 'medium',
         description,
         anonymous: anonymous || false,

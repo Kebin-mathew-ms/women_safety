@@ -18,15 +18,21 @@ import {
   TableHead,
   TableRow,
   Paper,
+  InputAdornment,
+  IconButton,
+  Tooltip,
 } from '@mui/material';
 import SendIcon from '@mui/icons-material/Send';
 import ReportIcon from '@mui/icons-material/Report';
+import MyLocationIcon from '@mui/icons-material/MyLocation';
 import userApiClient from '../../services/userApi';
 
 interface CrimeReport {
   id: string;
+  reportId?: string;
   description: string;
-  hazardType: string;
+  hazardType?: string;
+  category?: string;
   severity: string;
   address: string;
   createdAt: string;
@@ -57,6 +63,7 @@ export const UserCrimeReport: React.FC = () => {
   const [reports, setReports] = useState<CrimeReport[]>([]);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
+  const [locating, setLocating] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [form, setForm] = useState({
@@ -80,25 +87,73 @@ export const UserCrimeReport: React.FC = () => {
 
   useEffect(() => { fetchReports(); }, []);
 
+  const handleFetchCurrentLocation = () => {
+    if (!navigator.geolocation) {
+      setError('Geolocation is not supported by your browser.');
+      return;
+    }
+    setLocating(true);
+    setError('');
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        const lat = pos.coords.latitude.toFixed(5);
+        const lng = pos.coords.longitude.toFixed(5);
+        setForm((f) => ({ ...f, address: `Current Location (${lat}, ${lng})` }));
+        setLocating(false);
+      },
+      () => {
+        setLocating(false);
+        setError('Could not access current location. Please allow browser location access.');
+      },
+      { timeout: 8000 }
+    );
+  };
+
   const handleSubmit = async () => {
-    if (!form.description || !form.address) return;
+    if (!form.description.trim()) {
+      setError('Please provide a description of the hazard.');
+      return;
+    }
     setSubmitting(true);
     setError('');
     setSuccess('');
+
+    let finalAddress = form.address.trim();
+    let lat = 0;
+    let lng = 0;
+
+    // If the address is empty, automatically detect and send current location
+    if (!finalAddress && navigator.geolocation) {
+      try {
+        const pos = await new Promise<GeolocationPosition>((resolve, reject) => {
+          navigator.geolocation.getCurrentPosition(resolve, reject, { timeout: 8000 });
+        });
+        lat = pos.coords.latitude;
+        lng = pos.coords.longitude;
+        finalAddress = `Current Location (${lat.toFixed(5)}, ${lng.toFixed(5)})`;
+      } catch {
+        finalAddress = 'Current Location';
+      }
+    } else if (!finalAddress) {
+      finalAddress = 'Current Location';
+    }
+
     try {
       await userApiClient.post('/crime-reports', {
-        description: form.description,
+        description: form.description.trim(),
+        category: form.hazardType,
         hazardType: form.hazardType,
         severity: form.severity,
-        address: form.address,
-        latitude: 0,
-        longitude: 0,
+        address: finalAddress,
+        latitude: lat,
+        longitude: lng,
       });
       setSuccess('Hazard reported successfully. Thank you for keeping the community safe!');
       setForm({ description: '', hazardType: 'poor_lighting', severity: 'low', address: '' });
       fetchReports();
     } catch (e: any) {
-      setError(e?.response?.data?.message ?? 'Failed to submit report.');
+      const msg = e?.response?.data?.errors?.category?.[0] || e?.response?.data?.message || 'Failed to submit report.';
+      setError(msg);
     } finally {
       setSubmitting(false);
     }
@@ -184,9 +239,32 @@ export const UserCrimeReport: React.FC = () => {
               <TextField
                 fullWidth
                 label="Address / Location"
+                placeholder="Leave blank to automatically send your current location"
                 value={form.address}
                 onChange={(e) => setForm((f) => ({ ...f, address: e.target.value }))}
-                sx={inputSx}
+                helperText="Leave empty to automatically use your browser GPS location, or click the location icon to detect now."
+                sx={{
+                  ...inputSx,
+                  '& .MuiFormHelperText-root': { color: '#9ca3af', fontSize: 12, mt: 0.5 },
+                }}
+                InputProps={{
+                  endAdornment: (
+                    <InputAdornment position="end">
+                      <Tooltip title="Detect Current Location">
+                        <span>
+                          <IconButton
+                            onClick={handleFetchCurrentLocation}
+                            disabled={locating}
+                            sx={{ color: '#f43f5e' }}
+                            edge="end"
+                          >
+                            {locating ? <CircularProgress size={20} color="inherit" /> : <MyLocationIcon />}
+                          </IconButton>
+                        </span>
+                      </Tooltip>
+                    </InputAdornment>
+                  ),
+                }}
               />
             </Grid>
             <Grid item xs={12}>
@@ -194,7 +272,7 @@ export const UserCrimeReport: React.FC = () => {
                 variant="contained"
                 startIcon={submitting ? <CircularProgress size={18} color="inherit" /> : <SendIcon />}
                 onClick={handleSubmit}
-                disabled={submitting || !form.description || !form.address}
+                disabled={submitting || !form.description.trim()}
                 sx={{
                   background: 'linear-gradient(135deg, #f43f5e, #f59e0b)',
                   fontWeight: 600,
@@ -239,10 +317,10 @@ export const UserCrimeReport: React.FC = () => {
             </TableHead>
             <TableBody>
               {reports.map((r) => (
-                <TableRow key={r.id} sx={{ '& td': { borderBottom: '1px solid rgba(255,255,255,0.04)', color: '#f9fafb' } }}>
+                <TableRow key={r.reportId || r.id} sx={{ '& td': { borderBottom: '1px solid rgba(255,255,255,0.04)', color: '#f9fafb' } }}>
                   <TableCell sx={{ color: '#9ca3af', fontSize: 13 }}>{new Date(r.createdAt).toLocaleDateString()}</TableCell>
                   <TableCell>
-                    <Chip label={getHazardLabel(r.hazardType)} size="small" sx={{ backgroundColor: '#6366f122', color: '#6366f1', border: '1px solid #6366f155', fontWeight: 600, textTransform: 'capitalize' }} />
+                    <Chip label={getHazardLabel(r.category || r.hazardType || '')} size="small" sx={{ backgroundColor: '#6366f122', color: '#6366f1', border: '1px solid #6366f155', fontWeight: 600, textTransform: 'capitalize' }} />
                   </TableCell>
                   <TableCell>
                     <Chip label={r.severity} size="small" sx={getSeverityChipSx(r.severity)} />

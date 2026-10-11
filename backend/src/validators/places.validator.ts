@@ -46,10 +46,11 @@ export const updateReviewSchema = z.object({
 
 export const createCrimeReportSchema = z.object({
   body: z.object({
-    latitude: z.coerce.number().min(-90).max(90),
-    longitude: z.coerce.number().min(-180).max(180),
-    address: z.string({ required_error: 'Address is required' }).trim().min(1),
-    category: z.string({ required_error: 'Category is required' }).trim().min(1),
+    latitude: z.coerce.number().min(-90).max(90).optional().default(0),
+    longitude: z.coerce.number().min(-180).max(180).optional().default(0),
+    address: z.string().trim().optional().default('Current Location'),
+    category: z.string().trim().optional(),
+    hazardType: z.string().trim().optional(),
     severity: z.enum(['low', 'medium', 'high']).default('medium'),
     description: z.string().trim().optional().nullable(),
     anonymous: z.boolean().default(false),

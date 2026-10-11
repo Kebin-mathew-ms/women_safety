@@ -10,6 +10,18 @@ export interface RouteData {
   coordinates: [number, number][]; // array of [latitude, longitude]
 }
 
+export interface RawRouteStep {
+  name: string;
+  ref?: string;
+  distanceKm: number;
+  durationMinutes: number;
+  location: [number, number];
+}
+
+export interface DetailedRouteData extends RouteData {
+  steps: RawRouteStep[];
+}
+
 export interface GeocodedAddress {
   address: string;
   latitude: number;
@@ -189,6 +201,76 @@ export class OsmService {
           [destLat, destLon],
         ],
       };
+    }
+  }
+
+  /**
+   * Get all candidate routes with detailed turn-by-turn road steps from OSRM
+   */
+  public static async calculateCandidateRoutes(
+    srcLat: number,
+    srcLon: number,
+    destLat: number,
+    destLon: number
+  ): Promise<DetailedRouteData[]> {
+    try {
+      const coords = `${srcLon},${srcLat};${destLon},${destLat}`;
+      const response = await axios.get(`${OSRM_BASE}/route/v1/driving/${coords}`, {
+        params: {
+          overview: 'full',
+          geometries: 'geojson',
+          steps: true,
+          alternatives: true,
+        },
+      });
+
+      const routes = response.data?.routes || [];
+      if (routes.length === 0) {
+        throw new Error('No driving routes returned by OSRM');
+      }
+
+      const results: DetailedRouteData[] = routes.map((r: any) => {
+        const distance = r.distance / 1000;
+        const duration = r.duration / 60;
+        const coordinates = (r.geometry?.coordinates || []).map((coord: [number, number]) => [
+          coord[1],
+          coord[0],
+        ]) as [number, number][];
+
+        const rawSteps = (r.legs?.[0]?.steps || []) as any[];
+        const steps: RawRouteStep[] = rawSteps.map((s: any) => ({
+          name: s.name || '',
+          ref: s.ref || '',
+          distanceKm: (s.distance || 0) / 1000,
+          durationMinutes: (s.duration || 0) / 60,
+          location: s.maneuver?.location ? [s.maneuver.location[1], s.maneuver.location[0]] : [srcLat, srcLon],
+        }));
+
+        return {
+          distance,
+          duration,
+          coordinates,
+          steps,
+        };
+      });
+
+      return results;
+    } catch (error: any) {
+      logger.error(`OSRM Calculate Candidate Routes error: ${error.message}`);
+      const singleFallback = await this.calculateRoute(srcLat, srcLon, destLat, destLon);
+      return [
+        {
+          ...singleFallback,
+          steps: [
+            {
+              name: 'Direct Transit Corridor',
+              distanceKm: singleFallback.distance,
+              durationMinutes: singleFallback.duration,
+              location: [srcLat, srcLon],
+            },
+          ],
+        },
+      ];
     }
   }
 

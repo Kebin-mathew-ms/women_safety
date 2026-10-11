@@ -102,12 +102,23 @@ export class SafetyIntelligenceService {
     // 3. Traffic / Incident Risk Score (15%)
     let riskSegmentMatches: RiskSegmentData[] = [];
     route.segments.forEach((seg) => {
-      const match = KERALA_RISK_SEGMENTS.find(
-        (r) =>
-          r.fromTown.toLowerCase().includes(seg.startTown.toLowerCase()) ||
-          r.toTown.toLowerCase().includes(seg.endTown.toLowerCase())
-      );
-      if (match) riskSegmentMatches.push(match);
+      const match = KERALA_RISK_SEGMENTS.find((r) => {
+        const segRoad = (seg.roadName + ' ' + seg.highwayCode).toLowerCase();
+        const rName = r.segmentName.toLowerCase();
+        const rCode = r.highwayCode.toLowerCase();
+        const fromT = r.fromTown.toLowerCase();
+        const toT = r.toTown.toLowerCase();
+
+        const codeMatches = Boolean(rCode && seg.highwayCode && seg.highwayCode.toLowerCase().includes(rCode));
+        const roadMatches = segRoad.includes(fromT) || segRoad.includes(toT) || rName.includes(seg.roadName.toLowerCase());
+        const townMatches = (seg.startTown.toLowerCase() === fromT && seg.endTown.toLowerCase() === toT) ||
+                            (seg.startTown.toLowerCase() === toT && seg.endTown.toLowerCase() === fromT);
+
+        return (codeMatches && roadMatches) || townMatches;
+      });
+      if (match && !riskSegmentMatches.some(m => m.segmentName === match.segmentName)) {
+        riskSegmentMatches.push(match);
+      }
     });
 
     let trafficIncidentRisk = 85;
@@ -119,17 +130,18 @@ export class SafetyIntelligenceService {
     }
 
     // 4. Emergency Accessibility (15%)
-    const relevantFacilities = KERALA_SAFETY_FACILITIES.filter((f) =>
-      route.waypoints.some(
-        (wp) =>
-          f.district.toLowerCase().includes(wp.toLowerCase()) ||
-          f.location.toLowerCase().includes(wp.toLowerCase()) ||
-          f.name.toLowerCase().includes(wp.toLowerCase())
-      )
-    );
+    // Spatial proximity along route polyline (~10 km radius)
+    const relevantFacilities = KERALA_SAFETY_FACILITIES.filter((f) => {
+      const isNearRoute = route.coordinates.some(([lat, lon]) => {
+        return Math.abs(lat - f.latitude) < 0.09 && Math.abs(lon - f.longitude) < 0.09;
+      });
+      return isNearRoute;
+    });
     const policeCount = relevantFacilities.filter((f) => f.type === 'police_station').length;
     const hospitalCount = relevantFacilities.filter((f) => f.type === 'hospital').length;
-    const emergencyAccess = Math.min(100, 40 + policeCount * 20 + hospitalCount * 15);
+    const emergencyAccess = relevantFacilities.length > 0
+      ? Math.min(100, 40 + policeCount * 20 + hospitalCount * 15)
+      : 70;
 
     // 5. Lighting & Isolation Score (10%)
     let lightSum = 0;

@@ -1,10 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import {
   Box, Grid, Card, CardContent, Typography, Chip, Button,
-  CircularProgress, Alert
+  CircularProgress, Alert, TextField, IconButton, InputAdornment
 } from '@mui/material';
 import {
-  Map, TrendingUp, CheckCircle, Schedule
+  Map, TrendingUp, CheckCircle, Schedule, Mic, MicOff, Send
 } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
 import userApiClient from '../../services/userApi';
@@ -42,6 +42,78 @@ export const UserHome: React.FC = () => {
   const [sosLoading, setSosLoading] = useState(false);
   const [sosSuccess, setSosSuccess] = useState(false);
   const [sosError, setSosError] = useState<string | null>(null);
+
+  // Voice Command State
+  const [voiceText, setVoiceText] = useState('');
+  const [voiceProcessing, setVoiceProcessing] = useState(false);
+  const [isListening, setIsListening] = useState(false);
+  const [voiceResponse, setVoiceResponse] = useState<{ action: string; responseText: string } | null>(null);
+  const [voiceError, setVoiceError] = useState<string | null>(null);
+
+  const handleSendVoiceCommand = async (commandToSend?: string) => {
+    const text = (commandToSend || voiceText).trim();
+    if (!text) return;
+    setVoiceProcessing(true);
+    setVoiceError(null);
+    setVoiceResponse(null);
+
+    try {
+      const res = await userApiClient.post('/voice/command', { command: text });
+      if (res.data.success) {
+        setVoiceResponse({
+          action: res.data.data.action,
+          responseText: res.data.data.responseText,
+        });
+        setVoiceText('');
+
+        if ('speechSynthesis' in window) {
+          const utterance = new SpeechSynthesisUtterance(res.data.data.responseText);
+          window.speechSynthesis.speak(utterance);
+        }
+      }
+    } catch (err: any) {
+      setVoiceError(err.response?.data?.message || 'Failed to process voice command.');
+    } finally {
+      setVoiceProcessing(false);
+    }
+  };
+
+  const handleStartListening = () => {
+    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (!SpeechRecognition) {
+      setVoiceError('Speech recognition is not supported in this browser. You can click any quick command or type below.');
+      return;
+    }
+    setVoiceError(null);
+    try {
+      const recognition = new SpeechRecognition();
+      recognition.lang = 'en-US';
+      recognition.interimResults = false;
+      recognition.maxAlternatives = 1;
+
+      setIsListening(true);
+      recognition.start();
+
+      recognition.onresult = (event: any) => {
+        const transcript = event.results[0][0].transcript;
+        setIsListening(false);
+        setVoiceText(transcript);
+        handleSendVoiceCommand(transcript);
+      };
+
+      recognition.onerror = (event: any) => {
+        setIsListening(false);
+        setVoiceError(`Microphone notice: ${event.error}. You can also type or click any quick command.`);
+      };
+
+      recognition.onend = () => {
+        setIsListening(false);
+      };
+    } catch (e: any) {
+      setIsListening(false);
+      setVoiceError('Could not start microphone. You can type or click the quick command chips.');
+    }
+  };
 
   useEffect(() => {
     try {
@@ -201,6 +273,117 @@ export const UserHome: React.FC = () => {
               </Grid>
             ))}
           </Grid>
+        </Grid>
+
+        {/* Voice Command Safety Assistant */}
+        <Grid item xs={12}>
+          <Card sx={{ background: 'linear-gradient(135deg, rgba(99,102,241,0.08), rgba(139,92,246,0.04))', border: '1px solid rgba(99,102,241,0.25)', borderRadius: 3 }}>
+            <CardContent sx={{ p: 3 }}>
+              <Box display="flex" justifyContent="space-between" alignItems="center" mb={1} flexWrap="wrap" gap={1}>
+                <Box display="flex" alignItems="center" gap={1.5}>
+                  <Box sx={{ width: 40, height: 40, borderRadius: 2, background: 'linear-gradient(135deg, #6366f1, #8b5cf6)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                    <Mic sx={{ color: '#fff' }} />
+                  </Box>
+                  <Box>
+                    <Typography variant="h6" fontWeight="bold">🎙️ Voice Safety Assistant</Typography>
+                    <Typography variant="caption" color="text.secondary">
+                      Speak hands-free or test commands. Every command is automatically analyzed and audited in <strong>Admin Voice Analytics</strong>.
+                    </Typography>
+                  </Box>
+                </Box>
+                <Chip
+                  label="Logged to Admin /voice-analytics"
+                  size="small"
+                  sx={{ backgroundColor: 'rgba(99,102,241,0.12)', color: '#818cf8', fontSize: 11, fontWeight: 600 }}
+                />
+              </Box>
+
+              {voiceError && <Alert severity="warning" onClose={() => setVoiceError(null)} sx={{ my: 1.5, borderRadius: 2 }}>{voiceError}</Alert>}
+              {voiceResponse && (
+                <Alert severity={voiceResponse.action.includes('sos') ? 'error' : 'success'} onClose={() => setVoiceResponse(null)} sx={{ my: 1.5, borderRadius: 2 }}>
+                  <Typography variant="subtitle2" fontWeight="bold">
+                    🎯 Parsed Action: {voiceResponse.action.toUpperCase()}
+                  </Typography>
+                  <Typography variant="body2">{voiceResponse.responseText}</Typography>
+                </Alert>
+              )}
+
+              {/* Controls */}
+              <Box display="flex" gap={1.5} alignItems="center" mt={2} mb={2} flexWrap="wrap">
+                <Button
+                  variant={isListening ? 'contained' : 'outlined'}
+                  color={isListening ? 'error' : 'primary'}
+                  startIcon={isListening ? <MicOff /> : <Mic />}
+                  onClick={handleStartListening}
+                  sx={{ fontWeight: 700, borderRadius: 2, px: 2.5, py: 1 }}
+                >
+                  {isListening ? '⏹️ Listening... Speak Now' : '🎙️ Speak Command'}
+                </Button>
+
+                <Box flex={1} minWidth={260}>
+                  <TextField
+                    fullWidth
+                    size="small"
+                    placeholder="Or type a safety phrase: 'Help emergency', 'Navigate home', 'Start trip'..."
+                    value={voiceText}
+                    onChange={(e) => setVoiceText(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === 'Enter') handleSendVoiceCommand(); }}
+                    disabled={voiceProcessing}
+                    sx={{
+                      '& .MuiOutlinedInput-root': {
+                        color: '#f9fafb',
+                        '& fieldset': { borderColor: 'rgba(99,102,241,0.3)' },
+                        '&:hover fieldset': { borderColor: '#6366f1' },
+                        '&.Mui-focused fieldset': { borderColor: '#6366f1' },
+                      },
+                    }}
+                    InputProps={{
+                      endAdornment: (
+                        <InputAdornment position="end">
+                          <IconButton
+                            onClick={() => handleSendVoiceCommand()}
+                            disabled={voiceProcessing || !voiceText.trim()}
+                            color="primary"
+                            edge="end"
+                          >
+                            {voiceProcessing ? <CircularProgress size={18} /> : <Send />}
+                          </IconButton>
+                        </InputAdornment>
+                      ),
+                    }}
+                  />
+                </Box>
+              </Box>
+
+              {/* Quick sample chips */}
+              <Box display="flex" alignItems="center" gap={1} flexWrap="wrap">
+                <Typography variant="caption" color="text.secondary" fontWeight={600}>
+                  Quick Test Commands:
+                </Typography>
+                {[
+                  { label: '🚨 Help me emergency', cmd: 'Help me emergency', color: '#ef4444' },
+                  { label: '🏠 Navigate home', cmd: 'Navigate home safely', color: '#8b5cf6' },
+                  { label: '🗺️ Start trip', cmd: 'Start trip tracking', color: '#f59e0b' },
+                ].map((item) => (
+                  <Chip
+                    key={item.cmd}
+                    label={item.label}
+                    size="small"
+                    clickable
+                    onClick={() => handleSendVoiceCommand(item.cmd)}
+                    disabled={voiceProcessing}
+                    sx={{
+                      fontSize: 11, fontWeight: 600,
+                      backgroundColor: `${item.color}15`,
+                      color: item.color,
+                      border: `1px solid ${item.color}40`,
+                      '&:hover': { backgroundColor: `${item.color}25` }
+                    }}
+                  />
+                ))}
+              </Box>
+            </CardContent>
+          </Card>
         </Grid>
 
         {/* Recent Trips */}
