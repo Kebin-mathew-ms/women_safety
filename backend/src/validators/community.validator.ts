@@ -1,29 +1,23 @@
 import { z } from 'zod';
 
+const postBodySchema = z.object({
+  title: z.string({ required_error: 'Title is required' }).trim().min(1, 'Title is required').max(150),
+  description: z.string().trim().optional(),
+  content: z.string().trim().optional(),
+  category: z.string().trim().optional().default('travel_experience'),
+  anonymous: z.boolean().default(false),
+  latitude: z.coerce.number().min(-90).max(90).optional().nullable(),
+  longitude: z.coerce.number().min(-180).max(180).optional().nullable(),
+  address: z.string().trim().optional().nullable(),
+  visibility: z.string().default('public'),
+});
+
 export const createPostSchema = z.object({
-  body: z.object({
-    title: z.string({ required_error: 'Title is required' }).trim().min(3).max(100),
-    description: z.string({ required_error: 'Description is required' }).trim().min(5),
-    category: z.enum([
-      'safety_alert',
-      'travel_experience',
-      'safe_hotel',
-      'unsafe_area',
-      'emergency_help',
-      'travel_partner',
-      'question',
-      'general',
-    ]),
-    anonymous: z.boolean().default(false),
-    latitude: z.coerce.number().min(-90).max(90).optional().nullable(),
-    longitude: z.coerce.number().min(-180).max(180).optional().nullable(),
-    address: z.string().trim().optional().nullable(),
-    visibility: z.string().default('public'),
-  }),
+  body: postBodySchema,
 });
 
 export const updatePostSchema = z.object({
-  body: createPostSchema.shape.body.partial(),
+  body: postBodySchema.partial(),
 });
 
 export const createCommentSchema = z.object({

@@ -2,7 +2,7 @@ import { Request, Response, NextFunction } from 'express';
 import prisma from '../services/db.service';
 import { socketManager } from '../socket';
 import ResponseHelper from '../utils/response';
-import { NotFoundError, UnauthorizedError } from '../utils/errors';
+import { NotFoundError, UnauthorizedError, BadRequestError } from '../utils/errors';
 import logger from '../utils/logger';
 
 // Helper: update comments count on post
@@ -26,18 +26,44 @@ const updateLikesCount = async (postId: string) => {
 export const createPost = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
     const userId = (req as any).user.userId;
-    const { title, description, category, anonymous, latitude, longitude, address, visibility } = req.body;
+    let { title, description, content, category, anonymous, latitude, longitude, address, visibility } = req.body;
+
+    const finalDescription = (description || content || '').trim();
+    if (!finalDescription) {
+      throw new BadRequestError('Description is required');
+    }
+
+    // Category normalization
+    const catMap: Record<string, string> = {
+      tip: 'safety_alert',
+      alert: 'safety_alert',
+      safety_alert: 'safety_alert',
+      experience: 'travel_experience',
+      travel_experience: 'travel_experience',
+      hotel: 'safe_hotel',
+      safe_hotel: 'safe_hotel',
+      warning: 'unsafe_area',
+      unsafe_area: 'unsafe_area',
+      emergency: 'emergency_help',
+      emergency_help: 'emergency_help',
+      partner: 'travel_partner',
+      travel_partner: 'travel_partner',
+      question: 'question',
+      general: 'general',
+    };
+
+    const finalCategory = (category && catMap[String(category).toLowerCase()]) || category || 'travel_experience';
 
     const newPost = await prisma.communityPost.create({
       data: {
         userId,
-        title,
-        description,
-        category,
-        anonymous: anonymous || false,
-        latitude,
-        longitude,
-        address,
+        title: (title || 'Community Update').trim(),
+        description: finalDescription,
+        category: finalCategory,
+        anonymous: Boolean(anonymous),
+        latitude: latitude ? parseFloat(latitude) : null,
+        longitude: longitude ? parseFloat(longitude) : null,
+        address: address || null,
         visibility: visibility || 'public',
       },
     });
@@ -163,13 +189,30 @@ export const updatePost = async (req: Request, res: Response, next: NextFunction
   try {
     const userId = (req as any).user.userId;
     const { id } = req.params;
-    const updateData = req.body;
-
-    const post = await prisma.communityPost.findUnique({ where: { postId: id } });
-    if (!post || post.deletedAt) throw new NotFoundError('Post not found');
-
-    if (post.userId !== userId) {
-      throw new UnauthorizedError('Access Denied: Only the post creator can update this post.');
+    const updateData = { ...req.body };
+    if (updateData.content && !updateData.description) {
+      updateData.description = updateData.content;
+      delete updateData.content;
+    }
+    if (updateData.category) {
+      const catMap: Record<string, string> = {
+        tip: 'safety_alert',
+        alert: 'safety_alert',
+        safety_alert: 'safety_alert',
+        experience: 'travel_experience',
+        travel_experience: 'travel_experience',
+        hotel: 'safe_hotel',
+        safe_hotel: 'safe_hotel',
+        warning: 'unsafe_area',
+        unsafe_area: 'unsafe_area',
+        emergency: 'emergency_help',
+        emergency_help: 'emergency_help',
+        partner: 'travel_partner',
+        travel_partner: 'travel_partner',
+        question: 'question',
+        general: 'general',
+      };
+      updateData.category = catMap[String(updateData.category).toLowerCase()] || updateData.category;
     }
 
     const updated = await prisma.communityPost.update({

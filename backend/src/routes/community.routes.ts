@@ -25,7 +25,12 @@ router.delete('/comments/:id', auth, communityController.deleteComment);
 
 // Likes CRUD
 router.post('/likes', auth, validate(createLikeSchema), communityController.likePost);
+router.post('/posts/:id/like', auth, (req, res, next) => {
+  req.body = { ...req.body, postId: req.params.id };
+  return communityController.likePost(req, res, next);
+});
 router.delete('/likes/:id', auth, communityController.unlikePost);
+router.delete('/posts/:id/like', auth, communityController.unlikePost);
 
 // Saves CRUD
 router.post('/save', auth, communityController.savePost);

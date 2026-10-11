@@ -20,26 +20,48 @@ import SendIcon from '@mui/icons-material/Send';
 import userApiClient from '../../services/userApi';
 
 interface Post {
-  id: string;
+  postId?: string;
+  id?: string;
   title: string;
-  content: string;
+  description?: string;
+  content?: string;
   category: string;
   createdAt: string;
-  likeCount: number;
+  likes?: number;
+  likeCount?: number;
+  comments?: number;
+  user?: { fullName?: string; profileImage?: string | null };
   author?: { name?: string; fullName?: string };
 }
 
 const categories = [
-  { value: 'tip', label: 'Safety Tip', color: '#10b981' },
-  { value: 'experience', label: 'Experience', color: '#6366f1' },
-  { value: 'warning', label: 'Warning', color: '#ef4444' },
-  { value: 'question', label: 'Question', color: '#f59e0b' },
+  { value: 'travel_experience', label: 'Travel Experience', color: '#10b981' },
+  { value: 'safety_alert', label: 'Safety Alert', color: '#ef4444' },
+  { value: 'unsafe_area', label: 'Unsafe Area Warning', color: '#f97316' },
+  { value: 'safe_hotel', label: 'Safe Hotel / Stay', color: '#6366f1' },
+  { value: 'emergency_help', label: 'Emergency Help', color: '#dc2626' },
+  { value: 'travel_partner', label: 'Travel Partner', color: '#06b6d4' },
+  { value: 'question', label: 'Question & Advice', color: '#f59e0b' },
+  { value: 'general', label: 'General Discussion', color: '#8b5cf6' },
 ];
 
-const getCatColor = (cat: string) =>
-  categories.find((c) => c.value === cat)?.color ?? '#9ca3af';
-const getCatLabel = (cat: string) =>
-  categories.find((c) => c.value === cat)?.label ?? cat;
+const CATEGORY_MAP: Record<string, { label: string; color: string }> = {
+  safety_alert: { label: 'Safety Alert', color: '#ef4444' },
+  travel_experience: { label: 'Travel Experience', color: '#10b981' },
+  safe_hotel: { label: 'Safe Hotel', color: '#6366f1' },
+  unsafe_area: { label: 'Unsafe Area', color: '#f97316' },
+  emergency_help: { label: 'Emergency Help', color: '#dc2626' },
+  travel_partner: { label: 'Travel Partner', color: '#06b6d4' },
+  question: { label: 'Question', color: '#f59e0b' },
+  general: { label: 'General', color: '#8b5cf6' },
+  // aliases for legacy values
+  tip: { label: 'Safety Tip', color: '#10b981' },
+  experience: { label: 'Travel Experience', color: '#10b981' },
+  warning: { label: 'Unsafe Area Warning', color: '#ef4444' },
+};
+
+const getCatColor = (cat: string) => CATEGORY_MAP[cat]?.color ?? '#9ca3af';
+const getCatLabel = (cat: string) => CATEGORY_MAP[cat]?.label ?? cat;
 
 export const UserCommunity: React.FC = () => {
   const [posts, setPosts] = useState<Post[]>([]);
@@ -47,7 +69,7 @@ export const UserCommunity: React.FC = () => {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
-  const [form, setForm] = useState({ title: '', content: '', category: 'tip' });
+  const [form, setForm] = useState({ title: '', content: '', category: 'travel_experience' });
   const [likingId, setLikingId] = useState<string | null>(null);
 
   const fetchPosts = async () => {
@@ -65,32 +87,44 @@ export const UserCommunity: React.FC = () => {
   useEffect(() => { fetchPosts(); }, []);
 
   const handleSubmit = async () => {
-    if (!form.title || !form.content) return;
+    if (!form.title.trim() || !form.content.trim()) return;
     setSubmitting(true);
     setError('');
     setSuccess('');
     try {
       await userApiClient.post('/community/posts', {
-        title: form.title,
-        content: form.content,
+        title: form.title.trim(),
+        description: form.content.trim(),
+        content: form.content.trim(),
         category: form.category,
       });
       setSuccess('Post shared with the community!');
-      setForm({ title: '', content: '', category: 'tip' });
+      setForm({ title: '', content: '', category: 'travel_experience' });
       fetchPosts();
     } catch (e: any) {
-      setError(e?.response?.data?.message ?? 'Failed to create post.');
+      const errMsg = e?.response?.data?.message ||
+        (e?.response?.data?.errors ? Object.values(e.response.data.errors).flat().join(', ') : null) ||
+        'Failed to create post.';
+      setError(errMsg);
     } finally {
       setSubmitting(false);
     }
   };
 
   const handleLike = async (postId: string) => {
+    if (!postId) return;
     setLikingId(postId);
     try {
-      await userApiClient.post(`/community/posts/${postId}/like`);
+      await userApiClient.post('/community/likes', { postId });
       setPosts((prev) =>
-        prev.map((p) => p.id === postId ? { ...p, likeCount: p.likeCount + 1 } : p)
+        prev.map((p) => {
+          const id = p.postId || p.id;
+          if (id === postId) {
+            const currentLikes = p.likes ?? p.likeCount ?? 0;
+            return { ...p, likes: currentLikes + 1, likeCount: currentLikes + 1 };
+          }
+          return p;
+        })
       );
     } catch (e) {
       // silent fail
@@ -109,8 +143,11 @@ export const UserCommunity: React.FC = () => {
     '& .MuiInputLabel-root': { color: '#9ca3af' },
   };
 
+  const getPostId = (post: Post) => post.postId || post.id || '';
+  const getPostContent = (post: Post) => post.description || post.content || '';
+  const getPostLikes = (post: Post) => post.likes ?? post.likeCount ?? 0;
   const getAuthorName = (post: Post) =>
-    post.author?.fullName ?? post.author?.name ?? 'Anonymous';
+    post.user?.fullName ?? post.author?.fullName ?? post.author?.name ?? 'Community Member';
 
   const timeAgo = (dateStr: string) => {
     const diff = Date.now() - new Date(dateStr).getTime();
@@ -215,88 +252,91 @@ export const UserCommunity: React.FC = () => {
         </Card>
       ) : (
         <Grid container spacing={2.5}>
-          {posts.map((post) => (
-            <Grid item xs={12} md={6} key={post.id}>
-              <Card
-                sx={{
-                  backgroundColor: '#111827',
-                  border: '1px solid rgba(99,102,241,0.15)',
-                  borderRadius: 3,
-                  transition: 'transform 0.2s, box-shadow 0.2s',
-                  '&:hover': { transform: 'translateY(-3px)', boxShadow: '0 8px 32px rgba(99,102,241,0.18)' },
-                }}
-              >
-                <CardContent sx={{ p: 2.5 }}>
-                  <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 1.5 }}>
-                    <Box sx={{ flex: 1, mr: 1 }}>
-                      <Typography variant="subtitle1" fontWeight={700} sx={{ color: '#f9fafb', mb: 0.5 }}>
-                        {post.title}
-                      </Typography>
-                      <Chip
-                        label={getCatLabel(post.category)}
-                        size="small"
-                        sx={{
-                          backgroundColor: getCatColor(post.category) + '22',
-                          color: getCatColor(post.category),
-                          border: `1px solid ${getCatColor(post.category)}55`,
-                          fontWeight: 600,
-                          fontSize: 11,
-                        }}
-                      />
+          {posts.map((post) => {
+            const postId = getPostId(post);
+            return (
+              <Grid item xs={12} md={6} key={postId || Math.random().toString()}>
+                <Card
+                  sx={{
+                    backgroundColor: '#111827',
+                    border: '1px solid rgba(99,102,241,0.15)',
+                    borderRadius: 3,
+                    transition: 'transform 0.2s, box-shadow 0.2s',
+                    '&:hover': { transform: 'translateY(-3px)', boxShadow: '0 8px 32px rgba(99,102,241,0.18)' },
+                  }}
+                >
+                  <CardContent sx={{ p: 2.5 }}>
+                    <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 1.5 }}>
+                      <Box sx={{ flex: 1, mr: 1 }}>
+                        <Typography variant="subtitle1" fontWeight={700} sx={{ color: '#f9fafb', mb: 0.5 }}>
+                          {post.title}
+                        </Typography>
+                        <Chip
+                          label={getCatLabel(post.category)}
+                          size="small"
+                          sx={{
+                            backgroundColor: getCatColor(post.category) + '22',
+                            color: getCatColor(post.category),
+                            border: `1px solid ${getCatColor(post.category)}55`,
+                            fontWeight: 600,
+                            fontSize: 11,
+                          }}
+                        />
+                      </Box>
                     </Box>
-                  </Box>
 
-                  <Typography
-                    variant="body2"
-                    sx={{
-                      color: '#9ca3af',
-                      mb: 2,
-                      display: '-webkit-box',
-                      WebkitLineClamp: 3,
-                      WebkitBoxOrient: 'vertical',
-                      overflow: 'hidden',
-                      lineHeight: 1.6,
-                    }}
-                  >
-                    {post.content}
-                  </Typography>
+                    <Typography
+                      variant="body2"
+                      sx={{
+                        color: '#9ca3af',
+                        mb: 2,
+                        display: '-webkit-box',
+                        WebkitLineClamp: 3,
+                        WebkitBoxOrient: 'vertical',
+                        overflow: 'hidden',
+                        lineHeight: 1.6,
+                      }}
+                    >
+                      {getPostContent(post)}
+                    </Typography>
 
-                  <Divider sx={{ borderColor: 'rgba(255,255,255,0.06)', mb: 1.5 }} />
+                    <Divider sx={{ borderColor: 'rgba(255,255,255,0.06)', mb: 1.5 }} />
 
-                  <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                      <Avatar sx={{ width: 28, height: 28, backgroundColor: '#6366f1', fontSize: 13, fontWeight: 700 }}>
-                        {getAuthorName(post).charAt(0).toUpperCase()}
-                      </Avatar>
-                      <Typography variant="body2" sx={{ color: '#9ca3af', fontSize: 12 }}>
-                        {getAuthorName(post)}
-                      </Typography>
-                      <Typography variant="body2" sx={{ color: '#6b7280', fontSize: 12 }}>
-                        · {timeAgo(post.createdAt)}
-                      </Typography>
+                    <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                        <Avatar sx={{ width: 28, height: 28, backgroundColor: '#6366f1', fontSize: 13, fontWeight: 700 }}>
+                          {getAuthorName(post).charAt(0).toUpperCase()}
+                        </Avatar>
+                        <Typography variant="body2" sx={{ color: '#9ca3af', fontSize: 12 }}>
+                          {getAuthorName(post)}
+                        </Typography>
+                        <Typography variant="body2" sx={{ color: '#6b7280', fontSize: 12 }}>
+                          · {timeAgo(post.createdAt)}
+                        </Typography>
+                      </Box>
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                        <IconButton
+                          size="small"
+                          onClick={() => handleLike(postId)}
+                          disabled={!postId || likingId === postId}
+                          sx={{ color: '#f43f5e', '&:hover': { backgroundColor: '#f43f5e22' } }}
+                        >
+                          {likingId === postId ? (
+                            <CircularProgress size={16} sx={{ color: '#f43f5e' }} />
+                          ) : (
+                            <FavoriteBorderIcon fontSize="small" />
+                          )}
+                        </IconButton>
+                        <Typography variant="body2" sx={{ color: '#9ca3af', fontSize: 13 }}>
+                          {getPostLikes(post)}
+                        </Typography>
+                      </Box>
                     </Box>
-                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                      <IconButton
-                        size="small"
-                        onClick={() => handleLike(post.id)}
-                        disabled={likingId === post.id}
-                        sx={{ color: '#f43f5e', '&:hover': { backgroundColor: '#f43f5e22' } }}
-                      >
-                        {likingId === post.id ? (
-                          <CircularProgress size={16} sx={{ color: '#f43f5e' }} />
-                        ) : (
-                          <FavoriteBorderIcon fontSize="small" />
-                        )}
-                      </IconButton>
-                      <Typography variant="body2" sx={{ color: '#9ca3af', fontSize: 13 }}>
-                        {post.likeCount}
-                      </Typography>
-                    </Box>
-                  </Box>
-                </CardContent>
-              </Card>
-            </Grid>
-          ))}
+                  </CardContent>
+                </Card>
+              </Grid>
+            );
+          })}
         </Grid>
       )}
     </Box>
