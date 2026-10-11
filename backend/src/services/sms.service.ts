@@ -98,7 +98,7 @@ export class SmsService {
         logger.info(`📱 Fast2SMS sent successfully to ${toPhone} (Request ID: ${res.data?.request_id || 'OK'})`);
         return true;
       } catch (err: any) {
-        const errorMsg = err?.response?.data?.message || err?.message || 'Unknown SMS Error';
+        const errorMsg = JSON.stringify(err?.response?.data) || err?.message || 'Unknown SMS Error';
         logger.error(`❌ Fast2SMS dispatch error to ${toPhone}: ${errorMsg}`);
         logger.info(`📲 [SIMULATED CELLULAR SMS DISPATCH] To: ${toPhone} | Message: "${messageBody}"`);
         return false;
@@ -116,11 +116,11 @@ export class SmsService {
   public static async dispatchSOSAlerts(payload: EmergencySMSPayload): Promise<void> {
     const mapUrl = `https://maps.google.com/?q=${payload.latitude},${payload.longitude}`;
     const messageBody =
-      `🚨 EMERGENCY SOS ALERT!\n` +
+      `EMERGENCY SOS ALERT!\n` +
       `${payload.userName} (${payload.userPhone}) has triggered an urgent safety alert!\n` +
       `Location: ${payload.locationAddress}\n` +
       `Live Map GPS: ${mapUrl}\n` +
-      `Immediate action required! Call 112 / Pink Police 1515.`;
+      `Immediate action required! Call Emergency 112.`;
 
     const dispatchPromises = payload.contacts.map((contact) =>
       SmsService.sendSMS(contact.phone, messageBody)
