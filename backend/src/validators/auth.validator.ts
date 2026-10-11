@@ -57,11 +57,12 @@ export const resetPasswordSchema = z.object({
 
 export const changePasswordSchema = z.object({
   body: z.object({
-    oldPassword: z.string({ required_error: 'Old password is required' }).min(1),
-    newPassword: z.string({ required_error: 'New password is required' }).regex(
-      passwordRegex,
-      'New password must be at least 8 characters long, contain at least one uppercase letter, one lowercase letter, and one number'
-    ),
+    oldPassword: z.string().optional(),
+    currentPassword: z.string().optional(),
+    newPassword: z.string({ required_error: 'New password is required' }).min(6, 'New password must be at least 6 characters'),
+  }).refine((data) => Boolean((data.oldPassword && data.oldPassword.trim().length > 0) || (data.currentPassword && data.currentPassword.trim().length > 0)), {
+    message: 'Current password is required',
+    path: ['oldPassword'],
   }),
 });
 

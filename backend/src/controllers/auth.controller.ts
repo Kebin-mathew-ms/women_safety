@@ -293,14 +293,19 @@ export const resetPassword = async (req: Request, res: Response, next: NextFunct
 export const changePassword = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
     const userId = (req as any).user.userId;
-    const { oldPassword, newPassword } = req.body;
+    const { oldPassword, currentPassword, newPassword } = req.body;
+    const effectiveOldPassword = (oldPassword || currentPassword || '').trim();
+
+    if (!effectiveOldPassword) {
+      throw new BadRequestError('Current password is required');
+    }
 
     const user = await prisma.user.findUnique({ where: { userId } });
     if (!user) {
       throw new UnauthorizedError('User not found');
     }
 
-    const isMatch = await bcrypt.compare(oldPassword, user.password);
+    const isMatch = await bcrypt.compare(effectiveOldPassword, user.password);
     if (!isMatch) {
       throw new BadRequestError('Incorrect current password');
     }

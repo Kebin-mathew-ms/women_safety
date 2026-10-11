@@ -102,13 +102,17 @@ export const UserProfile: React.FC = () => {
     setPasswordSuccess('');
     try {
       await userApiClient.post('/auth/change-password', {
+        oldPassword: passwords.currentPassword,
         currentPassword: passwords.currentPassword,
         newPassword: passwords.newPassword,
       });
       setPasswordSuccess('Password changed successfully!');
       setPasswords({ currentPassword: '', newPassword: '', confirmPassword: '' });
     } catch (e: any) {
-      setPasswordError(e?.response?.data?.message ?? 'Failed to change password.');
+      const errMsg = e?.response?.data?.message ||
+        (e?.response?.data?.errors ? Object.values(e.response.data.errors).flat().join(', ') : null) ||
+        'Failed to change password.';
+      setPasswordError(errMsg);
     } finally {
       setSavingPassword(false);
     }
